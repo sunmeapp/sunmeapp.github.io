@@ -8,6 +8,12 @@
 <meta name="theme-color" content="#ececea" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#2f3034" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg stroke='%23f5841f' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M16 2v4M16 26v4M2 16h4M26 16h4M6 6l3 3M23 23l3 3M6 26l3-3M23 9l3-3'/%3E%3C/g%3E%3Ccircle cx='16' cy='16' r='7' fill='%23f5841f'/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="sunme">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Figtree:wght@400;500;600&display=swap">
@@ -228,7 +234,7 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
     <div class="label" id="nlabel">&nbsp;</div>
     <ul class="spots" id="spots"></ul>
   </div>
-  <div class="credit" id="credit">Shade from buildings and trees, computed on your device. Heights come from OpenStreetMap, so some are estimates; Toronto uses the City's lidar heights and tree survey. <a href="https://github.com" id="srcLink" target="_blank" rel="noopener">About</a></div>
+  <div class="credit" id="credit">Shade from buildings and trees, computed on your device. Heights come from OpenStreetMap, so some are estimates; Toronto uses the City's lidar heights and tree survey. <a href="https://github.com/sunmeapp/sunmeapp.github.io" id="srcLink" target="_blank" rel="noopener">About</a></div>
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -1080,6 +1086,7 @@ const mq = matchMedia('(prefers-color-scheme: dark)');
 mq.addEventListener ? mq.addEventListener('change', retheme) : mq.addListener(retheme);
 new ResizeObserver(() => document.documentElement.style.setProperty('--sheet-h', (window.innerWidth < 760 ? $('sheet').offsetHeight : 0) + 'px')).observe($('sheet'));
 })();
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
 </html>
