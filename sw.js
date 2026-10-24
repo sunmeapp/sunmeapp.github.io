@@ -1,6 +1,6 @@
 // sunme service worker: keeps the app shell and libraries on the phone so it opens instantly,
 // caches map tiles you've already viewed (capped), and fetches everything else normally.
-const SHELL = 'sunme-shell-v3', TILES = 'sunme-tiles-v1', MAX_TILES = 600;
+const SHELL = 'sunme-shell-v4', TILES = 'sunme-tiles-v1', MAX_TILES = 600;
 const SHELL_FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png',
   'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js',
   'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css',
@@ -27,7 +27,12 @@ self.addEventListener('fetch', (e) => {
     }));
     return;
   }
-  // app shell, libraries and the Toronto layer: cache first
+  // list of city layers: network first so newly built cities show up
+  if (url.origin === location.origin && url.pathname.endsWith('/cities/index.json')) {
+    e.respondWith(fetch(e.request).then((r) => { const cp = r.clone(); caches.open(SHELL).then((c) => c.put(e.request, cp)); return r; }).catch(() => caches.match(e.request)));
+    return;
+  }
+  // app shell, libraries, the Toronto layer and city layers (versioned by build date): cache first
   if (url.origin === location.origin || url.hostname === 'cdn.jsdelivr.net') {
     e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request).then((r) => { if (r.ok) { const cp = r.clone(); caches.open(SHELL).then((c) => c.put(e.request, cp)); } return r; })));
   }

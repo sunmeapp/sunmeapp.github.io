@@ -1,0 +1,37 @@
+# Builds city tree layers on GitHub's free runners (free for public repos) and commits them.
+# To add a city: add a line to tools/cities.csv, then Actions -> "Build city layers" -> Run workflow,
+# and type its slug (or "all" to rebuild every city, e.g. after a new Overture release).
+name: Build city layers
+on:
+  workflow_dispatch:
+    inputs:
+      cities:
+        description: 'City slugs separated by spaces, or "all"'
+        required: true
+        default: 'all'
+permissions:
+  contents: write
+concurrency: build-cities
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install numpy scipy rasterio pyproj shapely duckdb
+      - name: Build
+        env:
+          CITIES: ${{ inputs.cities }}
+        run: |
+          if [ "$CITIES" = "all" ]; then python tools/build_city.py --all; else python tools/build_city.py $CITIES; fi
+      - name: Commit
+        env:
+          CITIES: ${{ inputs.cities }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cities
+          git diff --cached --quiet || (git commit -m "Build city layers: $CITIES" && git push)

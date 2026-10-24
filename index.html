@@ -264,7 +264,7 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
     <div class="label" id="nlabel">&nbsp;</div>
     <ul class="spots" id="spots"></ul>
   </div>
-  <div class="credit" id="credit">Shade from buildings and trees, computed on your device. UV forecast by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). Heights come from OpenStreetMap, so some are estimates; Toronto uses the City's lidar heights and tree survey. <a href="https://github.com/sunmeapp/sunmeapp.github.io" id="srcLink" target="_blank" rel="noopener">About</a></div>
+  <div class="credit" id="credit">Shade from buildings and trees, computed on your device. UV forecast by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). Building heights come from Overture Maps, so some are estimates; Toronto uses the City's heights and tree survey, and capital cities add trees from the Meta and WRI canopy height model. <a href="https://github.com/sunmeapp/sunmeapp.github.io" id="srcLink" target="_blank" rel="noopener">About</a></div>
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -529,6 +529,43 @@ function loadToronto() {
     refresh();
   }).catch(() => { S.torontoLoading = false; });
 }
+/* ======================= city tree layers (capitals and more) =======================
+   Pre-built per city from the Meta/WRI canopy height model (tools/build_city.py); loaded only near that city,
+   then the trees in view are merged into the tile engine, whose buildings stay from Overture. */
+S.cities = null; S.cityData = new Map();
+fetch('cities/index.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : { cities: [] })).then((d) => { S.cities = d.cities || []; refresh(); }).catch(() => { S.cities = []; });
+function cityAt(lon, lat, pad = 0) {
+  if (!S.cities) return null;
+  for (const c of S.cities) { const [w, s, e, n] = c.bbox; if (lon > w - pad && lon < e + pad && lat > s - pad && lat < n + pad) return c; }
+  return null;
+}
+function loadCity(c) {
+  if (S.cityData.has(c.slug)) return;
+  S.cityData.set(c.slug, null);
+  fetch('cities/' + c.slug + '.json?v=' + encodeURIComponent(c.built || '')).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then((d) => {
+    const n = d.t.length / 5, xy = new Float32Array(n * 2), hr = new Float32Array(n * 2), U = d.unit;
+    let x = 0, y = 0;
+    for (let i = 0, j = 0; j < n; i += 5, j++) { x += d.t[i]; y += d.t[i + 1]; xy[2 * j] = x / U; xy[2 * j + 1] = y / U; hr[2 * j] = d.t[i + 2] / 10; hr[2 * j + 1] = d.t[i + 3] / 10; }
+    const f = makeEngine(d.origin);
+    S.cityData.set(c.slug, { slug: c.slug, name: d.name, origin: d.origin, mlat: f.mlat, mlon: f.mlon, xy, hr, n, meta: d.meta });
+    engineKey = ''; refresh();
+  }).catch(() => S.cityData.set(c.slug, false));
+}
+function addCityTrees(E, cd) {
+  // trees in view plus a margin wide enough for long low-sun shadows to reach in
+  const b = map.getBounds(), pw = (b.getEast() - b.getWest()) * 0.4, ph = (b.getNorth() - b.getSouth()) * 0.4;
+  const padLon = pw + 250 / cd.mlon, padLat = ph + 250 / cd.mlat;
+  const x0 = (b.getWest() - padLon - cd.origin[0]) * cd.mlon, x1 = (b.getEast() + padLon - cd.origin[0]) * cd.mlon;
+  const y0 = (b.getSouth() - padLat - cd.origin[1]) * cd.mlat, y1 = (b.getNorth() + padLat - cd.origin[1]) * cd.mlat;
+  let added = 0;
+  for (let j = 0; j < cd.n; j++) {
+    const x = cd.xy[2 * j], y = cd.xy[2 * j + 1];
+    if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+    const [lx, ly] = toLocal(E, cd.origin[0] + x / cd.mlon, cd.origin[1] + y / cd.mlat);
+    addTree(E, lx, ly, cd.hr[2 * j], false, cd.hr[2 * j + 1], 8); added++;
+  }
+  return added;
+}
 function inToronto(lon, lat) { return lon > TORONTO.w + 0.004 && lon < TORONTO.e - 0.004 && lat > TORONTO.s + 0.003 && lat < TORONTO.n - 0.003; }
 function nearToronto(lon, lat) { return lon > TORONTO.w - 0.1 && lon < TORONTO.e + 0.1 && lat > TORONTO.s - 0.1 && lat < TORONTO.n + 0.1; }
 
@@ -597,7 +634,7 @@ const map = new maplibregl.Map({
 });
 map.touchZoomRotate.disableRotation();
 
-map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: '<a href="https://open.toronto.ca/" target="_blank" rel="noopener">City of Toronto Open Data</a>' }), 'bottom-right');
+map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: '<a href="https://overturemaps.org/" target="_blank" rel="noopener">Overture Maps</a> · <a href="https://registry.opendata.aws/dataforgood-fb-forests/" target="_blank" rel="noopener">Meta &amp; WRI canopy heights</a> · <a href="https://open.toronto.ca/" target="_blank" rel="noopener">City of Toronto Open Data</a>' }), 'bottom-right');
 
 const shadeCv = document.createElement('canvas'), shadeCtx = shadeCv.getContext('2d');
 const maskCv = document.createElement('canvas'), maskCtx = maskCv.getContext('2d');
@@ -705,7 +742,9 @@ function buildTileEngine() {
     }
   }
   E.hsource = used; E.hstats = stats;
-  for (const f of map.querySourceFeatures('omt', { sourceLayer: 'landcover', filter: ['==', ['get', 'class'], 'wood'] })) {
+  const city = cityAt(c.lng, c.lat), cd = city && S.cityData.get(city.slug);
+  if (cd && addCityTrees(E, cd) >= 0) E.city = cd; // the canopy model already covers woods, so they are not added twice
+  else for (const f of map.querySourceFeatures('omt', { sourceLayer: 'landcover', filter: ['==', ['get', 'class'], 'wood'] })) {
     for (const r of ringsOf(f.geometry)) if (r.length >= 4) addCanopy(E, toRing(r));
   }
   return finalize(E);
@@ -829,6 +868,7 @@ function doRefresh() {
   dirty = false;
   const z = map.getZoom(), c = map.getCenter();
   if (nearToronto(c.lng, c.lat)) loadToronto();
+  const nc = z >= 11 && cityAt(c.lng, c.lat, 0.05); if (nc) loadCity(nc);
   if (z < MIN_SHADE_ZOOM) {
     map.setLayoutProperty('shade', 'visibility', 'none');
     map.getSource('spots').setData(fc([])); S.spots = []; S.engine = null;
@@ -1147,6 +1187,9 @@ async function renderSources(sel, E) {
   } else addRow(dl, 'Buildings', 'OpenStreetMap; many heights estimated');
   if (E.detail && E.meta) {
     addRow(dl, 'Trees', 'City survey, federal lidar and Meta canopy model; height is their median'); score += 1;
+  } else if (E.city) {
+    const lid = E.city.meta && E.city.meta.lidar;
+    addRow(dl, 'Trees', lid ? `Meta and WRI canopy model, checked against ${lid}; ${E.city.name} layer` : `Meta and WRI canopy height model (satellite, about 1 m); ${E.city.name} layer`); score += lid ? 2 : 1;
   } else addRow(dl, 'Trees', 'Mapped woods only');
   const seat = sel.k && sel.k !== 'p' ? addRow(dl, 'Seating', sel.patio ? `Licensed ${PATIO_KIND[sel.patio.kind]} (City CaféTO)` + (sel.patio.addr ? ', ' + sel.patio.addr : '') : 'Checking OpenStreetMap…') : null;
   if (!sel.k || sel.k === 'p') score += 1;
