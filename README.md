@@ -15,6 +15,7 @@ No accounts, keys, trackers or servers: it is a static site, free to host and li
 
 - Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL), tiles by [OpenFreeMap](https://openfreemap.org) and [© OpenMapTiles](https://www.openmaptiles.org/).
 - Toronto: City of Toronto Open Data — 3D Massing, Topographic Mapping (trees and treed areas), Street Tree Data — under the Open Government Licence – Toronto.
+- UV index forecast: [Open-Meteo](https://open-meteo.com/) (CC BY 4.0; free for non-commercial use), fetched only when you open a spot.
 - Place search: [Nominatim](https://nominatim.org/) (OpenStreetMap), sent only when you press Enter.
 - Libraries: [MapLibre GL JS](https://maplibre.org/) (BSD-3), [tz-lookup](https://github.com/darkskyapp/tz-lookup) (CC0).
 

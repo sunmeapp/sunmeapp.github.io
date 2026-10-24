@@ -46,6 +46,10 @@
   --panel-solid: #fafaf9;
   --line: #e2e2df;
   --chip: #ececea;
+  --uv2: #fbd9b4;
+  --uv3: #f8a65c;
+  --uv4: #d9480f;
+  --uv5: #8d3fa8;
   --f-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
   --f-ui: "Figtree", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
 }
@@ -55,7 +59,7 @@
     --road: #4a4b50; --road-edge: #43444a; --park: #3b3f39; --wood: #373b35; --water: #2b3036;
     --label: #e4e4e2; --halo: #2a2b2f; --sun: #ff9238; --sun-soft: #6b4524; --dot: #7c7e86;
     --tree: #5c6453; --tree-fall: #7d6545; --tree-bare: #5a5650; --conifer: #4f5a4b;
-    --ink: #efefed; --muted: #a3a5ad; --panel: rgba(36, 37, 41, 0.94); --panel-solid: #242529; --line: #393a3f; --chip: #333438;
+    --ink: #efefed; --muted: #a3a5ad; --panel: rgba(36, 37, 41, 0.94); --panel-solid: #242529; --line: #393a3f; --chip: #333438; --uv2: #5a4127; --uv3: #8a5524; --uv4: #c2410c; --uv5: #7b3596;
     color-scheme: dark;
   }
 }
@@ -64,7 +68,7 @@
   --road: #4a4b50; --road-edge: #43444a; --park: #3b3f39; --wood: #373b35; --water: #2b3036;
   --label: #e4e4e2; --halo: #2a2b2f; --sun: #ff9238; --sun-soft: #6b4524; --dot: #7c7e86;
   --tree: #5c6453; --tree-fall: #7d6545; --tree-bare: #5a5650; --conifer: #4f5a4b;
-  --ink: #efefed; --muted: #a3a5ad; --panel: rgba(36, 37, 41, 0.94); --panel-solid: #242529; --line: #393a3f; --chip: #333438;
+  --ink: #efefed; --muted: #a3a5ad; --panel: rgba(36, 37, 41, 0.94); --panel-solid: #242529; --line: #393a3f; --chip: #333438; --uv2: #5a4127; --uv3: #8a5524; --uv4: #c2410c; --uv5: #7b3596;
   color-scheme: dark;
 }
 html, body { height: 100%; margin: 0; }
@@ -172,6 +176,19 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
 .axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; margin-top: 3px; }
 .dsum { line-height: 1.45; }
 .dsum strong { font-weight: 600; }
+.uvbox { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.uvhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.uvhead small { color: var(--muted); font-size: 11px; }
+.uvrow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.uvc { border-radius: 10px; background: var(--chip); padding: 7px 6px 6px; display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0; }
+.uvc .t { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.uvc .v { font: 700 22px/1.1 var(--f-display); font-variant-numeric: tabular-nums; }
+.uvc .l { font-size: 11px; font-weight: 600; white-space: nowrap; }
+.uvc .w { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+.uvc .w .sunglyph { width: 12px; height: 12px; }
+.uvc.l1 { background: var(--chip); } .uvc.l2 { background: var(--uv2); } .uvc.l3 { background: var(--uv3); } .uvc.l4 { background: var(--uv4); color: #fff; } .uvc.l5 { background: var(--uv5); color: #fff; }
+.uvc.l4 .t, .uvc.l4 .w, .uvc.l5 .t, .uvc.l5 .w { color: rgba(255, 255, 255, 0.85); }
+.uvnote { font-size: 13px; line-height: 1.4; }
 .credit { font-size: 10.5px; color: var(--muted); line-height: 1.4; }
 .credit a { color: inherit; }
 .note { position: fixed; z-index: 7; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 66px); max-width: calc(100% - 32px);
@@ -222,6 +239,11 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
     </div>
     <div><div class="strip" id="strip"></div><div class="axis" id="axis"></div></div>
     <div class="dsum" id="dsum"></div>
+    <div class="uvbox" id="uvbox" hidden>
+      <div class="uvhead"><div class="label">UV index here</div><small id="uvsrc"></small></div>
+      <div class="uvrow" id="uvrow"></div>
+      <div class="uvnote" id="uvnote"></div>
+    </div>
   </div>
   <div id="nearby" style="display:flex;flex-direction:column;gap:8px">
     <div class="row scroll" role="group" aria-label="Show">
@@ -234,7 +256,7 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
     <div class="label" id="nlabel">&nbsp;</div>
     <ul class="spots" id="spots"></ul>
   </div>
-  <div class="credit" id="credit">Shade from buildings and trees, computed on your device. Heights come from OpenStreetMap, so some are estimates; Toronto uses the City's lidar heights and tree survey. <a href="https://github.com/sunmeapp/sunmeapp.github.io" id="srcLink" target="_blank" rel="noopener">About</a></div>
+  <div class="credit" id="credit">Shade from buildings and trees, computed on your device. UV forecast by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). Heights come from OpenStreetMap, so some are estimates; Toronto uses the City's lidar heights and tree survey. <a href="https://github.com/sunmeapp/sunmeapp.github.io" id="srcLink" target="_blank" rel="noopener">About</a></div>
 </section>
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -906,9 +928,10 @@ function renderDetail() {
   $('dname').textContent = sel.name;
   $('dmeta').textContent = sel.meta || (sel.k ? KNAME[sel.k] + (sel.k === 'p' ? ' · share of the park in sun' : ' · checked just outside the door') : 'Spot on the map');
   const pill = $('dpill'), E = S.engine, L = selLocal(sel), sum = $('dsum'), strip = $('strip'), ax = $('axis');
-  strip.textContent = ''; ax.textContent = ''; sum.textContent = '';
+  strip.textContent = ''; ax.textContent = ''; sum.textContent = ''; $('uvbox').hidden = true;
   if (!E || !L) { pill.className = 'pill shade'; pill.textContent = '–'; sum.textContent = 'Zoom in to a neighbourhood to see sun and shade here.'; return; }
   const val = (sun) => (L.samp ? spotSunAt(E, L, sun) : sunAt(E, L.x, L.y, sun));
+  renderUV(sel, val);
   const f = val(S.sun);
   if (S.sun.alt <= 0) { pill.className = 'pill shade'; pill.textContent = 'Sun down'; }
   else if (L.samp) { pill.className = 'pill ' + (f >= 0.66 ? 'sun' : f >= 0.25 ? 'part' : 'shade'); pill.textContent = Math.round(f * 100) + '% in sun'; }
@@ -932,6 +955,66 @@ function renderDetail() {
   const total = runs.reduce((a, r) => a + (Math.min(r.b, S.set) - r.a), 0) / 36e5, b = document.createElement('strong');
   b.textContent = runs.map((r) => `${fmtT(r.a)}–${fmtT(Math.min(r.b, S.set))}`).join(', ');
   sum.append(L.samp ? 'Mostly sunny ' : 'Sun ', b, ` · about ${total < 1 ? Math.round(total * 60) + ' min' : (Math.round(total * 2) / 2) + ' h'} in total.`);
+}
+/* --- UV: hourly forecast for the area (Open-Meteo, fetched only when a spot is opened, cached an hour),
+       combined with whether this exact spot is in sun --- */
+const uvCache = new Map();
+async function getUV(lat, lon) {
+  const key = lat.toFixed(1) + ',' + lon.toFixed(1), hit = uvCache.get(key);
+  if (hit && Date.now() - hit.at < 36e5) return hit.data;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}&hourly=uv_index,uv_index_clear_sky&timeformat=unixtime&past_days=2&forecast_days=16`;
+  const j = await fetch(url).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  const data = { t: j.hourly.time.map((x) => x * 1000), uv: j.hourly.uv_index, cs: j.hourly.uv_index_clear_sky };
+  uvCache.set(key, { at: Date.now(), data });
+  return data;
+}
+function clearSkyUV(alt) { return alt <= 0 ? 0 : 12.5 * Math.pow(Math.sin(alt), 2.42); } // typical-ozone clear-sky approximation
+function uvAt(data, ms, sun) {
+  if (data && ms >= data.t[0] && ms <= data.t[data.t.length - 1]) {
+    let i = 0; while (i < data.t.length - 2 && data.t[i + 1] < ms) i++;
+    const f = (ms - data.t[i]) / (data.t[i + 1] - data.t[i]), a = data.uv[i], b = data.uv[i + 1];
+    if (a != null && b != null) return { v: Math.max(0, a + (b - a) * f), est: false };
+  }
+  return { v: clearSkyUV(sun.alt), est: true };
+}
+const UVL = [[3, 'Low', 1], [6, 'Moderate', 2], [8, 'High', 3], [11, 'Very high', 4], [99, 'Extreme', 5]];
+const uvLevel = (v) => UVL.find(([max]) => v < max - 0.5) || UVL[4];
+let uvToken = 0;
+async function renderUV(sel, val) {
+  const box = $('uvbox'), row = $('uvrow'), note = $('uvnote'), my = ++uvToken, park = sel.k === 'p';
+  box.hidden = false;
+  let data = null;
+  try { data = await getUV(sel.lat, sel.lon); } catch (e) { data = null; }
+  if (my !== uvToken || S.sel !== sel) return;
+  row.textContent = '';
+  const cells = [], H = 36e5;
+  for (let k = 0; k < 4; k++) {
+    const t = S.ms + k * H, sun = sunPos(t, S.loc[1], S.loc[0]), u = uvAt(data, t, sun), f = sun.alt > 0 ? val(sun) : 0;
+    cells.push({ t, u, f, up: sun.alt > 0 });
+  }
+  let anyEst = false;
+  for (const [k, c] of cells.entries()) {
+    const [, name, cls] = uvLevel(c.u.v); anyEst = anyEst || c.u.est;
+    const el = document.createElement('div'); el.className = 'uvc l' + (c.up ? cls : 1);
+    const t = document.createElement('span'); t.className = 't'; t.textContent = k === 0 ? (S.live ? 'Now' : fmtT(c.t)) : `+${k} h`;
+    const v = document.createElement('span'); v.className = 'v'; v.textContent = c.up ? String(Math.round(c.u.v)) : '0';
+    const l = document.createElement('span'); l.className = 'l'; l.textContent = c.up ? name : 'Sun down';
+    const w = document.createElement('span'); w.className = 'w';
+    if (park && c.up) { if (c.f >= 0.5) w.innerHTML = SUN_SVG + Math.round(c.f * 100) + '%'; else w.textContent = Math.round(c.f * 100) + '% sun'; }
+    else if (c.up && c.f >= SUNNY) w.innerHTML = SUN_SVG + 'sun';
+    else w.textContent = c.up ? (c.f >= 0.25 ? 'dappled' : 'shade') : '–';
+    el.append(t, v, l, w); row.appendChild(el);
+  }
+  $('uvsrc').textContent = anyEst ? 'clear-sky estimate' : 'forecast';
+  const now = cells[0], [, n0] = uvLevel(now.u.v), later = cells[2];
+  let msg;
+  const advice = now.u.v >= 2.5 ? ' Sunscreen, a hat and sunglasses are a good idea.' : ' Low risk for most people.';
+  if (!now.up) msg = 'The sun is down, so there is no UV right now.';
+  else if (park) msg = `About ${Math.round(now.f * 100)}% of the park is in sun, with UV ${Math.round(now.u.v)} (${n0.toLowerCase()}) in the open.` + advice + ' Shaded parts get less, often around half.';
+  else if (now.f >= SUNNY) msg = `This spot is in the sun with UV ${Math.round(now.u.v)} (${n0.toLowerCase()}).` + (now.u.v >= 2.5 ? ' Sunscreen, a hat and sunglasses are a good idea.' : ' Low risk for most people.');
+  else msg = `This spot is ${now.f >= 0.25 ? 'in dappled shade' : 'in shade'}; UV here is lower than the open-sky ${Math.round(now.u.v)}, often around half.`;
+  if (later.up) msg += park ? ` In 2 hours: UV ${Math.round(later.u.v)}, ${Math.round(later.f * 100)}% of the park in sun.` : ` In 2 hours: UV ${Math.round(later.u.v)}, ${later.f >= SUNNY ? 'in sun here' : 'shaded here'}.`;
+  note.textContent = msg;
 }
 function spotSunAt(E, s, sun) { let n = 0, on = 0; for (let i = 0; i < s.samp.length; i += 2) { n++; if (sunAt(E, s.samp[i], s.samp[i + 1], sun) >= SUNNY) on++; } return on / n; }
 const SUN_SVG = '<svg class="sunglyph" viewBox="0 0 32 32" aria-hidden="true"><g stroke="var(--sun)" stroke-width="3" stroke-linecap="round"><path d="M16 2v4M16 26v4M2 16h4M26 16h4M6 6l3 3M23 23l3 3M6 26l3-3M23 9l3-3"/></g><circle cx="16" cy="16" r="7" fill="var(--sun)"/></svg>';
