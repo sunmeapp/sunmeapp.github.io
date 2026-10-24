@@ -189,6 +189,9 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
 .uvc.l1 { background: var(--chip); } .uvc.l2 { background: var(--uv2); } .uvc.l3 { background: var(--uv3); } .uvc.l4 { background: var(--uv4); color: #fff; } .uvc.l5 { background: var(--uv5); color: #fff; }
 .uvc.l4 .t, .uvc.l4 .w, .uvc.l5 .t, .uvc.l5 .w { color: rgba(255, 255, 255, 0.85); }
 .uvnote { font-size: 13px; line-height: 1.4; }
+.kv { margin: 0; display: grid; grid-template-columns: minmax(6.5em, 30%) 1fr; gap: 5px 12px; font-size: 13px; line-height: 1.4; }
+.kv dt { color: var(--muted); margin: 0; }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .credit { font-size: 10.5px; color: var(--muted); line-height: 1.4; }
 .credit a { color: inherit; }
 .note { position: fixed; z-index: 7; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 66px); max-width: calc(100% - 32px);
@@ -244,12 +247,17 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
       <div class="uvrow" id="uvrow"></div>
       <div class="uvnote" id="uvnote"></div>
     </div>
+    <div class="uvbox" id="srcbox" hidden>
+      <div class="uvhead"><div class="label">Sources</div><small id="conf"></small></div>
+      <dl class="kv" id="srckv"></dl>
+    </div>
   </div>
   <div id="nearby" style="display:flex;flex-direction:column;gap:8px">
     <div class="row scroll" role="group" aria-label="Show">
       <button class="chip" type="button" data-k="c" aria-pressed="true">Cafés</button>
       <button class="chip" type="button" data-k="b" aria-pressed="true">Bars</button>
       <button class="chip" type="button" data-k="p" aria-pressed="true">Parks</button>
+      <button class="chip" type="button" data-k="pt" aria-pressed="true">Patios</button>
       <button class="chip" type="button" data-k="r" aria-pressed="false">Food</button>
       <button class="chip" type="button" id="treesChip" aria-pressed="true"><span id="treesLbl">Trees</span></button>
     </div>
@@ -261,6 +269,7 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tz-lookup@6.1.25/tz.js"></script>
+<script src="https://unpkg.com/pmtiles@3.2.1/dist/pmtiles.js"></script>
 <script>
 (() => {
 'use strict';
@@ -304,7 +313,7 @@ const dirName = (az) => ['north', 'north-east', 'east', 'south-east', 'south', '
 const S = {
   day: null, live: true, ms: Date.now(), sun: null, sunKey: '', rise: 0, set: 0, slots: [], polar: '',
   loc: [-79.41, 43.65], // where the sun is computed (map centre, updated on big moves)
-  filters: { c: true, b: true, p: true, r: false }, trees: true, leaf: 1,
+  filters: { c: true, b: true, p: true, pt: true, r: false }, trees: true, leaf: 1,
   sel: null, me: null, colors: {}, engine: null, toronto: null, torontoLoading: false, spots: [],
 };
 
@@ -337,9 +346,9 @@ function addBuilding(E, p, z0, h) {
   E.B.push(o); if (h > E.maxH) E.maxH = h; growBB(E.ext, bb);
   const c = cellOf(E, (bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2); c.b.push(o); growBB(c.bb, bb); if (h > c.maxH) c.maxH = h;
 }
-function addTree(E, x, y, h, con) {
-  const r = Math.max(1.5, Math.min(9, 0.9 + 0.27 * h));
-  const o = { x, y, h, r, hc: Math.max(r + 0.5, h - r), con };
+function addTree(E, x, y, h, con, r0, flags) {
+  const r = r0 > 0 ? r0 : Math.max(1.5, Math.min(9, 0.9 + 0.27 * h));
+  const o = { x, y, h, r, hc: Math.max(Math.min(r, h * 0.45) + 0.5, h - Math.min(r, h * 0.45)), con, flags: flags || 0 };
   E.T.push(o);
   const c = cellOf(E, x, y); c.t.push(o); growBB(c.bb, [x - r, y - r, x + r, y + r]); if (h > c.maxH) c.maxH = h;
 }
@@ -506,7 +515,14 @@ function loadToronto() {
     const E = makeEngine(d.origin), U = d.unit;
     for (const a of d.b) addBuilding(E, decodeRing(a, 1, U), 0, a[0] / 10);
     let tx = 0, ty = 0;
-    for (let i = 0; i < d.t.length; i += 4) { tx += d.t[i]; ty += d.t[i + 1]; addTree(E, tx / U, ty / U, d.t[i + 2] / 10, d.t[i + 3] === 1); }
+    const st = d.v >= 2 ? 5 : 4;
+    for (let i = 0; i < d.t.length; i += st) {
+      tx += d.t[i]; ty += d.t[i + 1];
+      if (st === 5) addTree(E, tx / U, ty / U, d.t[i + 2] / 10, (d.t[i + 4] & 1) === 1, d.t[i + 3] / 10, d.t[i + 4]);
+      else addTree(E, tx / U, ty / U, d.t[i + 2] / 10, d.t[i + 3] === 1);
+    }
+    E.patios = (d.pt || []).map((a) => ({ x: a[0] / U, y: a[1] / U, kind: a[2], name: a[3], addr: a[4] }));
+    E.meta = d.meta || null;
     for (const a of d.ca) addCanopy(E, decodeRing(a, 0, U));
     E.detail = true;
     S.toronto = finalize(E);
@@ -531,7 +547,7 @@ function style() {
   return {
     version: 8,
     glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
-    sources: { omt: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' } },
+    sources: Object.assign({ omt: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' } }, HAS_OVT ? { ovt: { type: 'vector', url: 'pmtiles://' + OVT_URL } } : {}),
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': C.ground } },
       { id: 'wood', type: 'fill', source: 'omt', 'source-layer': 'landcover', filter: ['==', ['get', 'class'], 'wood'], paint: { 'fill-color': C.wood } },
@@ -551,6 +567,10 @@ function style() {
         layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': C.road, 'line-width': zw(1.4, 22) } },
       { id: 'rail', type: 'line', source: 'omt', 'source-layer': 'transportation', minzoom: 13, filter: ['==', ['get', 'class'], 'rail'],
         paint: { 'line-color': C['road-edge'], 'line-width': 1.2, 'line-dasharray': [3, 2] } },
+      ...(HAS_OVT ? [
+        { id: 'ovt-b', type: 'fill', source: 'ovt', 'source-layer': 'building', minzoom: 14, paint: { 'fill-opacity': 0 } },
+        { id: 'ovt-p', type: 'fill', source: 'ovt', 'source-layer': 'building_part', minzoom: 14, paint: { 'fill-opacity': 0 } },
+      ] : []),
       { id: 'building', type: 'fill', source: 'omt', 'source-layer': 'building', minzoom: 13, paint: { 'fill-color': C.bldg, 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 15, 1] } },
       { id: 'building-edge', type: 'line', source: 'omt', 'source-layer': 'building', minzoom: 16, paint: { 'line-color': C['bldg-edge'], 'line-width': 0.6 } },
       { id: 'road-label', type: 'symbol', source: 'omt', 'source-layer': 'transportation_name', minzoom: 13,
@@ -564,6 +584,10 @@ function style() {
     ],
   };
 }
+// Overture Maps buildings: merged OpenStreetMap, Microsoft and Google footprints with recorded heights where known
+const OVT_URL = 'https://overturemaps-extras-us-west-2.s3.us-west-2.amazonaws.com/tiles/2026-10-21.0/buildings.pmtiles';
+let HAS_OVT = false;
+try { if (window.pmtiles) { const proto = new pmtiles.Protocol(); maplibregl.addProtocol('pmtiles', proto.tile); HAS_OVT = true; } } catch (e) { HAS_OVT = false; }
 let startView = { center: [-79.4125, 43.6492], zoom: 15.6 };
 const hm = location.hash.match(/^#([\d.]+)\/(-?[\d.]+)\/(-?[\d.]+)/);
 if (hm) startView = { zoom: +hm[1], center: [+hm[3], +hm[2]] };
@@ -643,18 +667,44 @@ function ringsOf(geom) {
 function buildTileEngine() {
   const c = map.getCenter(), E = makeEngine([+c.lng.toFixed(4), +c.lat.toFixed(4)]);
   const toRing = (coords) => { const p = new Float32Array(coords.length * 2 - 2); for (let i = 0; i < coords.length - 1; i++) { const [x, y] = toLocal(E, coords[i][0], coords[i][1]); p[2 * i] = x; p[2 * i + 1] = y; } return p; };
-  const seen = new Set();
-  for (const f of map.querySourceFeatures('omt', { sourceLayer: 'building' })) {
-    const pr = f.properties || {};
-    if (pr.hide_3d) continue;
-    const h = Math.min(+pr.render_height || 6, 600), z0 = Math.min(+pr.render_min_height || 0, h - 1);
-    for (const r of ringsOf(f.geometry)) {
+  const seen = new Set(), stats = { measured: 0, floors: 0, estimated: 0 };
+  const addRings = (geom, z0, h) => {
+    for (const r of ringsOf(geom)) {
       if (r.length < 4) continue;
       const key = r.length + ':' + r[0][0].toFixed(6) + ':' + r[0][1].toFixed(6);
       if (seen.has(key)) continue; seen.add(key);
       addBuilding(E, toRing(r), z0 > 0.5 ? z0 : 0, h);
     }
+  };
+  let used = 'osm';
+  if (HAS_OVT && !S.ovtFailed) {
+    const bf = map.querySourceFeatures('ovt', { sourceLayer: 'building' }), pf = map.querySourceFeatures('ovt', { sourceLayer: 'building_part' });
+    if (bf.length) {
+      used = 'overture';
+      const yes = (v) => v === true || v === 'true';
+      const add = (f) => {
+        const pr = f.properties || {};
+        if (yes(pr.is_underground)) return;
+        let h = +pr.height, kind = 'measured';
+        if (!(h > 0)) { if (+pr.num_floors > 0) { h = +pr.num_floors * 3.2 + 1; kind = 'floors'; } else { h = 6; kind = 'estimated'; } }
+        h = Math.min(h, 600);
+        let z0 = +pr.min_height > 0 ? +pr.min_height : (+pr.min_floor > 0 ? +pr.min_floor * 3.2 : 0);
+        z0 = Math.min(z0, h - 1);
+        stats[kind]++; addRings(f.geometry, z0, h);
+      };
+      for (const f of bf) if (!yes((f.properties || {}).has_parts)) add(f);
+      for (const f of pf) add(f);
+    }
   }
+  if (used === 'osm') {
+    for (const f of map.querySourceFeatures('omt', { sourceLayer: 'building' })) {
+      const pr = f.properties || {};
+      if (pr.hide_3d) continue;
+      const h = Math.min(+pr.render_height || 6, 600), z0 = Math.min(+pr.render_min_height || 0, h - 1);
+      stats.estimated++; addRings(f.geometry, z0, h);
+    }
+  }
+  E.hsource = used; E.hstats = stats;
   for (const f of map.querySourceFeatures('omt', { sourceLayer: 'landcover', filter: ['==', ['get', 'class'], 'wood'] })) {
     for (const r of ringsOf(f.geometry)) if (r.length >= 4) addCanopy(E, toRing(r));
   }
@@ -668,7 +718,34 @@ function activeEngine() {
 
 /* ======================= places from tiles ======================= */
 const POI = { cafe: 'c', ice_cream: 'c', bakery: 'c', bar: 'b', beer: 'b', pub: 'b', biergarten: 'b', restaurant: 'r', fast_food: 'r' };
-const KNAME = { c: 'Café', b: 'Bar', r: 'Food', p: 'Park' };
+const KNAME = { c: 'Café', b: 'Bar', r: 'Food', p: 'Park', pt: 'Patio' };
+const PATIO_KIND = { s: 'sidewalk café', c: 'curb-lane café', p: 'private patio' };
+const nameTokens = (n) => (n || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]+/g, ' ').split(' ').filter((w) => w.length > 2 && !['the', 'cafe', 'bar', 'restaurant', 'inc', 'ltd', 'and', 'kitchen', 'coffee', 'public', 'parklet'].includes(w));
+function sameName(a, b) { const A = nameTokens(a), B = new Set(nameTokens(b)); return A.length > 0 && A.some((w) => B.has(w)); }
+function attachPatios(E, out) {
+  if (!E.patios || !E.patios.length) return;
+  for (const p of E.patios) p.used = false;
+  // one patio per place, matched by the licence holder's name; other patios show under their own name
+  const pairs = [];
+  for (const s of out) {
+    if (s.k === 'p') continue;
+    for (const p of E.patios) {
+      const d = Math.hypot(p.x - s.x, p.y - s.y); if (d > 45) continue;
+      if (sameName(s.name, p.name)) pairs.push([d, s, p]);
+    }
+  }
+  pairs.sort((a, b) => a[0] - b[0]);
+  for (const [, s, p] of pairs) {
+    if (p.used || s.patio) continue;
+    p.used = true; s.patio = p; s.x = p.x; s.y = p.y; [s.lon, s.lat] = toLL(E, p.x, p.y);
+  }
+  const b = map.getBounds(), [x0, y0] = toLocal(E, b.getWest(), b.getSouth()), [x1, y1] = toLocal(E, b.getEast(), b.getNorth());
+  for (const p of E.patios) {
+    if (p.used || p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1) continue;
+    const [lon, lat] = toLL(E, p.x, p.y);
+    out.push({ name: p.name || 'Patio', k: 'pt', x: p.x, y: p.y, lon, lat, patio: p });
+  }
+}
 function frontage(E, x, y) {
   // a shop point inside a building is moved just outside its nearest open wall (patio / street side)
   if (!E || !E.grid) return [x, y];
@@ -696,8 +773,10 @@ function collectSpots(E) {
     if (seen.has(key)) continue; seen.add(key);
     let [x, y] = toLocal(E, lon, lat);
     [x, y] = frontage(E, x, y);
-    out.push({ name: pr.name_en || pr.name, k, x, y, lon, lat });
+    const [flon, flat] = toLL(E, x, y);  // keep list and detail on the same outdoor point
+    out.push({ name: pr.name_en || pr.name, k, x, y, lon: flon, lat: flat });
   }
+  attachPatios(E, out);
   // parks: named park points from the POI layer, matched to the park/grass polygon that contains them
   const polys = [];
   for (const f of map.querySourceFeatures('omt', { sourceLayer: 'landcover' })) {
@@ -902,6 +981,8 @@ function setTime(ms, live) {
   const alt = S.sun.alt / RAD;
   const zone = TZ !== DEVICE_TZ ? ` · ${TZ.split('/').pop().replace(/_/g, ' ')} time` : '';
   $('sunline').textContent = (alt > 0 ? `${Math.round(alt)}° up, ${dirName(S.sun.az)}` + (S.polar ? '' : ` · sets ${fmtT(S.set)}`) : 'Sun is down' + (S.polar ? '' : ` · rises ${fmtT(S.rise)}`)) + zone;
+  $('sunline').dataset.base = $('sunline').textContent;
+  updateWeather();
   const r = 22 * (1 - Math.max(0, Math.min(90, alt)) / 90), sx = 26 + r * Math.sin(S.sun.az), sy = 26 - r * Math.cos(S.sun.az);
   $('dsun').setAttribute('cx', sx.toFixed(1)); $('dsun').setAttribute('cy', sy.toFixed(1)); $('dsun').style.opacity = alt > 0 ? 1 : 0.25;
   $('dray').setAttribute('x2', sx.toFixed(1)); $('dray').setAttribute('y2', sy.toFixed(1));
@@ -926,12 +1007,13 @@ function selLocal(sel) {
 function renderDetail() {
   const sel = S.sel; if (!sel) return;
   $('dname').textContent = sel.name;
-  $('dmeta').textContent = sel.meta || (sel.k ? KNAME[sel.k] + (sel.k === 'p' ? ' · share of the park in sun' : ' · checked just outside the door') : 'Spot on the map');
+  $('dmeta').textContent = sel.meta || (sel.k ? KNAME[sel.k] + (sel.k === 'p' ? ' · share of the park in sun' : sel.patio ? ' · checked at its licensed ' + PATIO_KIND[sel.patio.kind] : sel.seatArea ? ' · checked at its mapped outdoor seating' : ' · checked just outside the door') : 'Spot on the map');
   const pill = $('dpill'), E = S.engine, L = selLocal(sel), sum = $('dsum'), strip = $('strip'), ax = $('axis');
   strip.textContent = ''; ax.textContent = ''; sum.textContent = ''; $('uvbox').hidden = true;
   if (!E || !L) { pill.className = 'pill shade'; pill.textContent = '–'; sum.textContent = 'Zoom in to a neighbourhood to see sun and shade here.'; return; }
   const val = (sun) => (L.samp ? spotSunAt(E, L, sun) : sunAt(E, L.x, L.y, sun));
   renderUV(sel, val);
+  renderSources(sel, E);
   const f = val(S.sun);
   if (S.sun.alt <= 0) { pill.className = 'pill shade'; pill.textContent = 'Sun down'; }
   else if (L.samp) { pill.className = 'pill ' + (f >= 0.66 ? 'sun' : f >= 0.25 ? 'part' : 'shade'); pill.textContent = Math.round(f * 100) + '% in sun'; }
@@ -962,11 +1044,28 @@ const uvCache = new Map();
 async function getUV(lat, lon) {
   const key = lat.toFixed(1) + ',' + lon.toFixed(1), hit = uvCache.get(key);
   if (hit && Date.now() - hit.at < 36e5) return hit.data;
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}&hourly=uv_index,uv_index_clear_sky&timeformat=unixtime&past_days=2&forecast_days=16`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}&hourly=uv_index,uv_index_clear_sky,cloud_cover&timeformat=unixtime&past_days=2&forecast_days=16`;
   const j = await fetch(url).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
-  const data = { t: j.hourly.time.map((x) => x * 1000), uv: j.hourly.uv_index, cs: j.hourly.uv_index_clear_sky };
+  const data = { t: j.hourly.time.map((x) => x * 1000), uv: j.hourly.uv_index, cs: j.hourly.uv_index_clear_sky, cc: j.hourly.cloud_cover };
   uvCache.set(key, { at: Date.now(), data });
   return data;
+}
+function cloudAt(data, ms) {
+  if (!data || !data.cc || ms < data.t[0] || ms > data.t[data.t.length - 1]) return null;
+  let i = 0; while (i < data.t.length - 2 && data.t[i + 1] < ms) i++;
+  const f = (ms - data.t[i]) / (data.t[i + 1] - data.t[i]), a = data.cc[i], b = data.cc[i + 1];
+  return a == null || b == null ? null : a + (b - a) * f;
+}
+const cloudWord = (c) => c == null ? '' : c < 20 ? 'clear' : c < 50 ? 'some cloud' : c < 80 ? 'mostly cloudy' : 'overcast';
+let wxToken = 0;
+async function updateWeather() {
+  const my = ++wxToken;
+  let data = null; try { data = await getUV(S.loc[1], S.loc[0]); } catch (e) { data = null; }
+  if (my !== wxToken) return;
+  S.cloud = cloudAt(data, S.ms);
+  const base = $('sunline').dataset.base || $('sunline').textContent;
+  $('sunline').textContent = base + (S.cloud != null && S.sun && S.sun.alt > 0 ? ` · ${cloudWord(S.cloud)}` : '');
+  if (!S.sel) renderNearby();
 }
 function clearSkyUV(alt) { return alt <= 0 ? 0 : 12.5 * Math.pow(Math.sin(alt), 2.42); } // typical-ozone clear-sky approximation
 function uvAt(data, ms, sun) {
@@ -1016,6 +1115,66 @@ async function renderUV(sel, val) {
   if (later.up) msg += park ? ` In 2 hours: UV ${Math.round(later.u.v)}, ${Math.round(later.f * 100)}% of the park in sun.` : ` In 2 hours: UV ${Math.round(later.u.v)}, ${later.f >= SUNNY ? 'in sun here' : 'shaded here'}.`;
   note.textContent = msg;
 }
+/* --- sources: which independent datasets back this answer --- */
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+const seatCache = new Map();
+async function osmSeating(lat, lon) {
+  const key = lat.toFixed(5) + ',' + lon.toFixed(5);
+  if (seatCache.has(key)) return seatCache.get(key);
+  const q = `[out:json][timeout:8];(nwr(around:35,${lat},${lon})[outdoor_seating];nwr(around:35,${lat},${lon})[leisure=outdoor_seating];);out tags center 12;`;
+  for (const u of OVERPASS) {
+    try {
+      const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), 9000);
+      const r = await fetch(u + '?data=' + encodeURIComponent(q), { signal: ctrl.signal }); clearTimeout(t);
+      if (!r.ok) continue;
+      const els = (await r.json()).elements || [];
+      seatCache.set(key, els); return els;
+    } catch (e) { /* try the next mirror */ }
+  }
+  return null;
+}
+function addRow(dl, k, v) { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; dl.append(dt, dd); return dd; }
+let srcToken = 0;
+async function renderSources(sel, E) {
+  const box = $('srcbox'), dl = $('srckv'), my = ++srcToken; box.hidden = false; dl.textContent = '';
+  let score = 0;
+  addRow(dl, 'Sun', 'Calculated for this place, date and time');
+  if (E.detail && E.meta) {
+    addRow(dl, 'Buildings', `City of Toronto heights; ${E.meta.buildings.agree_pct}% match federal lidar`); score += 2;
+  } else if (E.hsource === 'overture') {
+    const s = E.hstats, n = s.measured + s.floors + s.estimated, pct = n ? Math.round((s.measured + s.floors) / n * 100) : 0;
+    addRow(dl, 'Buildings', `Overture Maps; ${pct}% here have a recorded height or floor count`); if (pct >= 60) score += 1;
+  } else addRow(dl, 'Buildings', 'OpenStreetMap; many heights estimated');
+  if (E.detail && E.meta) {
+    addRow(dl, 'Trees', 'City survey, federal lidar and Meta canopy model; height is their median'); score += 1;
+  } else addRow(dl, 'Trees', 'Mapped woods only');
+  const seat = sel.k && sel.k !== 'p' ? addRow(dl, 'Seating', sel.patio ? `Licensed ${PATIO_KIND[sel.patio.kind]} (City CaféTO)` + (sel.patio.addr ? ', ' + sel.patio.addr : '') : 'Checking OpenStreetMap…') : null;
+  if (!sel.k || sel.k === 'p') score += 1;
+  if (sel.patio) score += 1;
+  const wx = addRow(dl, 'Weather', '…');
+  const conf = () => { $('conf').textContent = 'agreement: ' + (score >= 4 ? 'high' : score >= 2 ? 'medium' : 'low'); };
+  conf();
+  let data = null; try { data = await getUV(sel.lat, sel.lon); } catch (e) { data = null; }
+  if (my !== srcToken) return;
+  const c = cloudAt(data, S.ms);
+  wx.textContent = !data ? 'Forecast unavailable right now' : c == null ? 'No forecast for this date' : `${cloudWord(c)} (${Math.round(c)}% cloud, Open-Meteo)` + (c >= 80 ? '; direct sun unlikely' : '');
+  if (c != null) score += 1; conf();
+  if (seat && !sel.patio) {
+    const els = await osmSeating(sel.lat, sel.lon);
+    if (my !== srcToken) return;
+    if (els == null) { seat.textContent = 'OpenStreetMap check unavailable right now'; return; }
+    const named = els.find((e) => e.tags && e.tags.outdoor_seating && sameName(sel.name, e.tags.name));
+    const any = named || els.find((e) => e.tags && (e.tags.leisure === 'outdoor_seating' || (e.tags.outdoor_seating && e.tags.outdoor_seating !== 'no')));
+    const area = els.find((e) => e.tags && e.tags.leisure === 'outdoor_seating' && e.center);
+    if (named && named.tags.outdoor_seating === 'no') seat.textContent = 'OpenStreetMap: no outdoor seating';
+    else if (any) {
+      const v = any.tags.outdoor_seating && any.tags.outdoor_seating !== 'yes' ? any.tags.outdoor_seating.replace(/;/g, ', ') : '';
+      seat.textContent = 'OpenStreetMap: outdoor seating' + (v ? ' (' + v + ')' : '') + (area ? '; checked at the mapped seating area' : '');
+      score += 1; conf();
+      if (area && !sel.seatArea) { sel.seatArea = true; sel.lon = area.center.lon; sel.lat = area.center.lat; renderDetail(); }
+    } else seat.textContent = 'Not recorded; checked just outside the door';
+  }
+}
 function spotSunAt(E, s, sun) { let n = 0, on = 0; for (let i = 0; i < s.samp.length; i += 2) { n++; if (sunAt(E, s.samp[i], s.samp[i + 1], sun) >= SUNNY) on++; } return on / n; }
 const SUN_SVG = '<svg class="sunglyph" viewBox="0 0 32 32" aria-hidden="true"><g stroke="var(--sun)" stroke-width="3" stroke-linecap="round"><path d="M16 2v4M16 26v4M2 16h4M26 16h4M6 6l3 3M23 23l3 3M6 26l3-3M23 9l3-3"/></g><circle cx="16" cy="16" r="7" fill="var(--sun)"/></svg>';
 function renderNearby() {
@@ -1023,7 +1182,7 @@ function renderNearby() {
   const ul = $('spots'); ul.textContent = '';
   if (map.getZoom() < MIN_SHADE_ZOOM) { $('nlabel').textContent = 'Zoom in to a neighbourhood to see sun and shade'; return; }
   if (!S.sun || S.sun.alt <= 0) { $('nlabel').textContent = 'The sun is down'; return; }
-  $('nlabel').textContent = S.live ? 'In the sun right now, near the centre' : `In the sun at ${fmtT(S.ms)}, near the centre`;
+  $('nlabel').textContent = (S.live ? 'In the sun right now, near the centre' : `In the sun at ${fmtT(S.ms)}, near the centre`) + (S.cloud >= 80 ? ' (but overcast)' : '');
   const E = S.engine; if (!E) return;
   const c = map.getCenter(), [cx, cy] = toLocal(E, c.lng, c.lat);
   const list = S.spots.filter((s) => S.filters[s.k] && s.f != null && (s.k === 'p' ? s.f >= 0.5 : s.f >= SUNNY))
@@ -1065,7 +1224,8 @@ map.on('moveend', () => {
     if (wasLive) goLive(); else setTime(S.slots[nearestSlot(localToMs(S.day.y, S.day.m, S.day.d, kp.h * 60 + kp.mi))], false);
   } else refresh();
 });
-map.on('sourcedata', (e) => { if (e.sourceId === 'omt' && e.isSourceLoaded && !map.isMoving()) refresh(); });
+map.on('sourcedata', (e) => { if ((e.sourceId === 'omt' || e.sourceId === 'ovt') && e.isSourceLoaded && !map.isMoving()) refresh(); });
+map.on('error', (e) => { if (e && e.sourceId === 'ovt' && !S.ovtFailed) { S.ovtFailed = true; engineKey = ''; refresh(); } });
 map.on('idle', () => { if (dirty) doRefresh(); });
 map.on('load', () => {
   ready = true;

@@ -1,10 +1,10 @@
 // sunme service worker: keeps the app shell and libraries on the phone so it opens instantly,
 // caches map tiles you've already viewed (capped), and fetches everything else normally.
-const SHELL = 'sunme-shell-v2', TILES = 'sunme-tiles-v1', MAX_TILES = 600;
+const SHELL = 'sunme-shell-v3', TILES = 'sunme-tiles-v1', MAX_TILES = 600;
 const SHELL_FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png',
   'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js',
   'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css',
-  'https://cdn.jsdelivr.net/npm/tz-lookup@6.1.25/tz.js'];
+  'https://cdn.jsdelivr.net/npm/tz-lookup@6.1.25/tz.js', 'https://unpkg.com/pmtiles@3.2.1/dist/pmtiles.js'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== SHELL && k !== TILES).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
