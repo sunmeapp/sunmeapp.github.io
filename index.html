@@ -1,0 +1,1085 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>sunme</title>
+<meta name="description" content="Find sun and shade: a live map of where the sun falls on streets, patios and parks, in 30-minute steps.">
+<meta name="theme-color" content="#ececea" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#2f3034" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg stroke='%23f5841f' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M16 2v4M16 26v4M2 16h4M26 16h4M6 6l3 3M23 23l3 3M6 26l3-3M23 9l3-3'/%3E%3C/g%3E%3Ccircle cx='16' cy='16' r='7' fill='%23f5841f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Figtree:wght@400;500;600&display=swap">
+<style>
+/* Layout: full-bleed map; floating search bar; one compact time sheet (bottom on phones, left panel on wide screens). Palette: greys for sun and shade, one sun orange. */
+:root {
+  color-scheme: light;
+  --ground: #ecebe8;      /* ground in sun */
+  --shade: #34363d;       /* shade tint */
+  --shade-a: 0.33;
+  --bldg: #d0d1d4;
+  --bldg-edge: #b7b8bd;
+  --road: #fbfbfa;
+  --road-edge: #dadad6;
+  --park: #dfe2d8;
+  --wood: #d5d9cc;
+  --water: #cfd6dc;
+  --label: #3b3d44;
+  --halo: #f6f6f4;
+  --sun: #f5841f;
+  --sun-soft: #fbd2ac;
+  --dot: #9a9ca4;
+  --tree: #a6ad97;
+  --tree-fall: #c7a173;
+  --tree-bare: #b3aea5;
+  --conifer: #8c9783;
+  --ink: #26282e;
+  --muted: #6b6e78;
+  --panel: rgba(250, 250, 249, 0.94);
+  --panel-solid: #fafaf9;
+  --line: #e2e2df;
+  --chip: #ececea;
+  --f-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --f-ui: "Figtree", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #3d3e42; --shade: #0b0c0f; --shade-a: 0.6; --bldg: #55575d; --bldg-edge: #64666d;
+    --road: #4a4b50; --road-edge: #43444a; --park: #3b3f39; --wood: #373b35; --water: #2b3036;
+    --label: #e4e4e2; --halo: #2a2b2f; --sun: #ff9238; --sun-soft: #6b4524; --dot: #7c7e86;
+    --tree: #5c6453; --tree-fall: #7d6545; --tree-bare: #5a5650; --conifer: #4f5a4b;
+    --ink: #efefed; --muted: #a3a5ad; --panel: rgba(36, 37, 41, 0.94); --panel-solid: #242529; --line: #393a3f; --chip: #333438;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #3d3e42; --shade: #0b0c0f; --shade-a: 0.6; --bldg: #55575d; --bldg-edge: #64666d;
+  --road: #4a4b50; --road-edge: #43444a; --park: #3b3f39; --wood: #373b35; --water: #2b3036;
+  --label: #e4e4e2; --halo: #2a2b2f; --sun: #ff9238; --sun-soft: #6b4524; --dot: #7c7e86;
+  --tree: #5c6453; --tree-fall: #7d6545; --tree-bare: #5a5650; --conifer: #4f5a4b;
+  --ink: #efefed; --muted: #a3a5ad; --panel: rgba(36, 37, 41, 0.94); --panel-solid: #242529; --line: #393a3f; --chip: #333438;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; }
+body { background: var(--ground); color: var(--ink); font: 14px var(--f-ui); overflow: hidden; -webkit-tap-highlight-color: transparent; }
+#map { position: fixed; inset: 0; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--sun); outline-offset: 2px; }
+
+.top {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 5; pointer-events: none; display: flex; gap: 8px; align-items: flex-start;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.pillbar { pointer-events: auto; background: var(--panel); box-shadow: 0 2px 10px rgba(20, 20, 30, 0.12); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.brand { display: flex; align-items: center; gap: 7px; height: 44px; padding: 0 14px 0 10px; border-radius: 22px; flex: none;
+  font: 700 21px var(--f-display); letter-spacing: -0.02em; }
+.brand svg { width: 22px; height: 22px; }
+.search { pointer-events: auto; position: relative; flex: 1; min-width: 0; max-width: 400px; }
+.search input { width: 100%; box-sizing: border-box; height: 44px; border: 0; border-radius: 22px; padding: 0 16px; font-size: 15px; }
+.search input::placeholder { color: var(--muted); }
+.results { position: absolute; top: 50px; left: 0; right: 0; margin: 0; padding: 6px; list-style: none; background: var(--panel-solid);
+  border-radius: 16px; box-shadow: 0 8px 28px rgba(20, 20, 30, 0.2); max-height: 55vh; overflow: auto; }
+.results button { width: 100%; text-align: left; background: none; border: 0; padding: 9px 10px; border-radius: 10px; display: flex; gap: 10px; align-items: center; }
+.results button:hover, .results button.on { background: var(--chip); }
+.results .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.results small { color: var(--muted); flex: none; }
+.results .note2 { padding: 8px 10px; color: var(--muted); font-size: 13px; }
+.locate { flex: none; width: 44px; height: 44px; border-radius: 22px; border: 0; display: grid; place-items: center; }
+.locate svg { width: 20px; height: 20px; stroke: var(--ink); fill: none; stroke-width: 2; }
+.locate.busy svg { animation: pulse 1s infinite; }
+@media (max-width: 440px) { .brand span { display: none; } .brand { padding: 0 11px; } }
+
+.sheet {
+  position: fixed; z-index: 6; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; gap: 10px;
+  background: var(--panel); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  border-radius: 20px 20px 0 0; box-shadow: 0 -4px 24px rgba(20, 20, 30, 0.14); max-height: 56vh; overflow-y: auto;
+  padding-top: 14px; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+@media (min-width: 760px) {
+  .sheet { left: max(16px, env(safe-area-inset-left, 0px)); right: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    width: 380px; border-radius: 20px; padding: 16px 18px; max-height: calc(100% - 110px); gap: 12px; }
+}
+.when { display: flex; align-items: center; gap: 12px; }
+.dial { flex: none; width: 50px; height: 50px; }
+.dial .hz { fill: var(--chip); }
+.dial .ring { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.dial text { font: 600 7px var(--f-ui); fill: var(--muted); text-anchor: middle; }
+.dial .sunpt { fill: var(--sun); }
+.dial .ray { stroke: var(--sun); stroke-width: 1.5; stroke-dasharray: 2 2; }
+.clock { flex: 1; min-width: 0; }
+.time { font: 700 32px/1 var(--f-display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.sunline { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.live { flex: none; height: 34px; padding: 0 12px; border-radius: 17px; border: 1px solid var(--line); background: transparent;
+  display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; }
+.live b { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.live.on { background: var(--ink); color: var(--panel-solid); border-color: var(--ink); }
+.live.on b { background: var(--sun); animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .live.on b, .locate.busy svg { animation: none; } }
+.row { display: flex; gap: 6px; flex-wrap: wrap; }
+.scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.chip { height: 32px; padding: 0 12px; border-radius: 16px; border: 0; background: var(--chip); font-weight: 500; font-size: 13px;
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; flex: none; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--panel-solid); }
+.chip input[type="date"] { border: 0; background: transparent; font-size: 13px; width: 8.6em; padding: 0; }
+.chip.datechip[aria-pressed="true"] input { color: var(--panel-solid); }
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; background: transparent; margin: 0; }
+input[type="range"]::-webkit-slider-runnable-track { height: 10px; border-radius: 5px; background: var(--trackbg, var(--chip)); }
+input[type="range"]::-moz-range-track { height: 10px; border-radius: 5px; background: var(--trackbg, var(--chip)); }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; margin-top: -8px; border-radius: 50%;
+  background: var(--panel-solid); border: 3px solid var(--sun); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
+input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--panel-solid); border: 3px solid var(--sun); }
+.ends { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.spots { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.spots button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 0; background: none; border: 0; border-bottom: 1px solid var(--line); text-align: left; }
+.spots li:last-child button { border-bottom: 0; }
+.spots .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.spots small { color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
+.sunglyph { width: 16px; height: 16px; flex: none; }
+.empty { color: var(--muted); font-size: 13px; padding: 2px 0; }
+@media (max-width: 759px) {
+  .spots { flex-direction: row; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
+  .spots li { flex: none; }
+  .spots button { width: auto; height: 34px; padding: 0 12px; gap: 7px; border: 0; border-radius: 17px; background: var(--chip); }
+  .spots .nm { max-width: 11em; }
+  .time { font-size: 30px; }
+}
+.detail { display: flex; flex-direction: column; gap: 10px; }
+.dhead { display: flex; gap: 10px; align-items: flex-start; }
+.dhead > div { flex: 1; min-width: 0; }
+.dname { font: 700 20px/1.15 var(--f-display); letter-spacing: -0.01em; text-wrap: balance; }
+.dmeta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.pill { flex: none; height: 26px; padding: 0 10px; border-radius: 13px; font-weight: 600; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
+.pill.sun { background: var(--sun); color: #2b1300; }
+.pill.part { background: var(--sun-soft); color: var(--ink); }
+.pill.shade { background: var(--ink); color: var(--panel-solid); }
+.x { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 0; background: var(--chip); font-size: 16px; line-height: 1; }
+.strip { position: relative; display: flex; height: 22px; border-radius: 6px; overflow: hidden; background: var(--chip); }
+.strip span { flex: 1; }
+.strip i { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); border-radius: 1px; }
+.axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; margin-top: 3px; }
+.dsum { line-height: 1.45; }
+.dsum strong { font-weight: 600; }
+.credit { font-size: 10.5px; color: var(--muted); line-height: 1.4; }
+.credit a { color: inherit; }
+.note { position: fixed; z-index: 7; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 66px); max-width: calc(100% - 32px);
+  background: var(--ink); color: var(--panel-solid); padding: 8px 14px; border-radius: 16px; font-size: 13px; font-weight: 500; text-align: center; }
+@media (min-width: 760px) { .note { top: calc(env(safe-area-inset-top, 0px) + 72px); } }
+.maplibregl-ctrl-attrib { font-family: var(--f-ui); }
+.maplibregl-ctrl-bottom-right { bottom: var(--sheet-h, 0px); }
+@media (min-width: 760px) { .maplibregl-ctrl-bottom-right { bottom: 0; } }
+</style>
+</head>
+<body>
+<div id="map" role="application" aria-label="Map showing sun and shade"></div>
+
+<div class="top">
+  <div class="brand pillbar"><svg viewBox="0 0 32 32" aria-hidden="true"><g stroke="var(--sun)" stroke-width="3" stroke-linecap="round"><path d="M16 2v4M16 26v4M2 16h4M26 16h4M6 6l3 3M23 23l3 3M6 26l3-3M23 9l3-3"/></g><circle cx="16" cy="16" r="7" fill="var(--sun)"/></svg><span>sunme</span></div>
+  <div class="search">
+    <input class="pillbar" id="q" type="search" enterkeyhint="search" placeholder="Search a café, park or address" autocomplete="off" aria-label="Search a café, park or address">
+    <ul class="results" id="results" hidden></ul>
+  </div>
+  <button class="locate pillbar" id="locate" type="button" aria-label="Show my location"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
+</div>
+<div class="note" id="note" hidden></div>
+
+<section class="sheet" id="sheet">
+  <div class="when">
+    <svg class="dial" viewBox="0 0 52 52" aria-hidden="true">
+      <circle class="hz" cx="26" cy="26" r="22"/><circle class="ring" cx="26" cy="26" r="14.7"/><circle class="ring" cx="26" cy="26" r="7.3"/>
+      <text x="26" y="9.5">N</text>
+      <line class="ray" id="dray" x1="26" y1="26" x2="26" y2="26"/><circle class="sunpt" id="dsun" cx="26" cy="26" r="4.5"/>
+    </svg>
+    <div class="clock"><div class="time" id="time">–</div><div class="sunline" id="sunline">&nbsp;</div></div>
+    <button class="live" id="live" type="button" aria-pressed="true"><b></b>Live</button>
+  </div>
+  <div class="row" role="group" aria-label="Day">
+    <button class="chip" id="dToday" type="button" aria-pressed="true">Today</button>
+    <button class="chip" id="dTomorrow" type="button" aria-pressed="false">Tomorrow</button>
+    <label class="chip datechip" id="dPickWrap" aria-pressed="false"><input id="dPick" type="date" aria-label="Pick a date"></label>
+  </div>
+  <div>
+    <input id="slider" type="range" min="0" max="20" step="1" value="0" aria-label="Time of day in 30-minute steps">
+    <div class="ends"><span id="rise"></span><span id="set"></span></div>
+  </div>
+  <div class="detail" id="detail" hidden>
+    <div class="dhead">
+      <div><div class="dname" id="dname"></div><div class="dmeta" id="dmeta"></div></div>
+      <span class="pill" id="dpill"></span>
+      <button class="x" id="dclose" type="button" aria-label="Close">×</button>
+    </div>
+    <div><div class="strip" id="strip"></div><div class="axis" id="axis"></div></div>
+    <div class="dsum" id="dsum"></div>
+  </div>
+  <div id="nearby" style="display:flex;flex-direction:column;gap:8px">
+    <div class="row scroll" role="group" aria-label="Show">
+      <button class="chip" type="button" data-k="c" aria-pressed="true">Cafés</button>
+      <button class="chip" type="button" data-k="b" aria-pressed="true">Bars</button>
+      <button class="chip" type="button" data-k="p" aria-pressed="true">Parks</button>
+      <button class="chip" type="button" data-k="r" aria-pressed="false">Food</button>
+      <button class="chip" type="button" id="treesChip" aria-pressed="true"><span id="treesLbl">Trees</span></button>
+    </div>
+    <div class="label" id="nlabel">&nbsp;</div>
+    <ul class="spots" id="spots"></ul>
+  </div>
+  <div class="credit" id="credit">Shade from buildings and trees, computed on your device. Heights come from OpenStreetMap, so some are estimates; Toronto uses the City's lidar heights and tree survey. <a href="https://github.com" id="srcLink" target="_blank" rel="noopener">About</a></div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tz-lookup@6.1.25/tz.js"></script>
+<script>
+(() => {
+'use strict';
+const RAD = Math.PI / 180;
+const STEP_MIN = 30;
+const CELL = 250, RCELL = 100, MAXL = 1800;
+const MIN_SHADE_ZOOM = 14;
+const TORONTO = { w: -79.445, s: 43.625, e: -79.355, n: 43.685, url: 'toronto.json' };
+const $ = (id) => document.getElementById(id);
+
+/* ======================= sun ======================= */
+const J1970 = 2440588, J2000 = 2451545, OBL = RAD * 23.4397;
+function sunPos(ms, lat, lng) {
+  const d = ms / 864e5 - 0.5 + J1970 - J2000;
+  const M = RAD * (357.5291 + 0.98560028 * d);
+  const C = RAD * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
+  const L = M + C + RAD * 102.9372 + Math.PI;
+  const dec = Math.asin(Math.sin(OBL) * Math.sin(L)), ra = Math.atan2(Math.sin(L) * Math.cos(OBL), Math.cos(L));
+  const H = RAD * (280.16 + 360.9856235 * d) + RAD * lng - ra, phi = RAD * lat;
+  const alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+  let az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi)) + Math.PI;
+  az = ((az % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  return { alt, az };
+}
+// Times are shown in the map location's own time zone (offline lookup), so 3 pm in London means London's 3 pm.
+const DEVICE_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+let TZ = DEVICE_TZ;
+const fmtCache = {}, partCache = {};
+function tzFor(lat, lon) { try { return tzlookup(lat, lon) || DEVICE_TZ; } catch (e) { return DEVICE_TZ; } }
+function zParts(ms) {
+  const f = partCache[TZ] || (partCache[TZ] = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+  const o = {}; for (const p of f.formatToParts(new Date(ms))) o[p.type] = p.value;
+  return { y: +o.year, m: +o.month, d: +o.day, h: +o.hour % 24, mi: +o.minute, s: +o.second };
+}
+function tzOffset(ms) { const p = zParts(ms); return Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s) - Math.floor(ms / 1000) * 1000; }
+function localToMs(y, m, d, minutes) { const g = Date.UTC(y, m - 1, d, 0, minutes); let t = g - tzOffset(g); const o2 = tzOffset(t); if (g - o2 !== t) t = g - o2; return t; }
+const fmtT = (ms) => (fmtCache[TZ] || (fmtCache[TZ] = new Intl.DateTimeFormat(undefined, { timeZone: TZ, hour: 'numeric', minute: '2-digit' }))).format(new Date(ms)).replace(/ | /g, ' ').replace(/\s?a\.m\./i, ' am').replace(/\s?p\.m\./i, ' pm');
+const dirName = (az) => ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round(az / (Math.PI / 4)) % 8];
+
+/* ======================= state ======================= */
+const S = {
+  day: null, live: true, ms: Date.now(), sun: null, sunKey: '', rise: 0, set: 0, slots: [], polar: '',
+  loc: [-79.41, 43.65], // where the sun is computed (map centre, updated on big moves)
+  filters: { c: true, b: true, p: true, r: false }, trees: true, leaf: 1,
+  sel: null, me: null, colors: {}, engine: null, toronto: null, torontoLoading: false, spots: [],
+};
+
+/* ======================= geometry engine ======================= */
+// Local metric frame around an origin: x east, y north, metres.
+function makeEngine(origin) {
+  const phi = origin[1] * RAD;
+  return {
+    origin, mlat: 111132.92 - 559.82 * Math.cos(2 * phi) + 1.175 * Math.cos(4 * phi), mlon: 111412.84 * Math.cos(phi) - 93.5 * Math.cos(3 * phi),
+    B: [], T: [], CA: [], cells: new Map(), maxH: 0, grid: null, ext: [Infinity, Infinity, -Infinity, -Infinity],
+  };
+}
+const toLocal = (E, lon, lat) => [(lon - E.origin[0]) * E.mlon, (lat - E.origin[1]) * E.mlat];
+const toLL = (E, x, y) => [E.origin[0] + x / E.mlon, E.origin[1] + y / E.mlat];
+function signedArea(p) { let a = 0; const n = p.length / 2; for (let i = 0, j = n - 1; i < n; j = i++) a += p[2 * j] * p[2 * i + 1] - p[2 * i] * p[2 * j + 1]; return a / 2; }
+function reverseRing(p) { const n = p.length / 2, o = new Float32Array(p.length); for (let i = 0; i < n; i++) { o[2 * i] = p[2 * (n - 1 - i)]; o[2 * i + 1] = p[2 * (n - 1 - i) + 1]; } return o; }
+function bboxOf(p) { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (let i = 0; i < p.length; i += 2) { const x = p[i], y = p[i + 1]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } return [x0, y0, x1, y1]; }
+function growBB(bb, b) { if (b[0] < bb[0]) bb[0] = b[0]; if (b[1] < bb[1]) bb[1] = b[1]; if (b[2] > bb[2]) bb[2] = b[2]; if (b[3] > bb[3]) bb[3] = b[3]; }
+const overlaps = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+function cellOf(E, x, y) {
+  const k = Math.floor(x / CELL) * 100003 + Math.floor(y / CELL);
+  let c = E.cells.get(k);
+  if (!c) { c = { b: [], t: [], ca: [], bb: [Infinity, Infinity, -Infinity, -Infinity], maxH: 0, sh: null, shKey: '', shbb: null, crowns: null }; E.cells.set(k, c); }
+  return c;
+}
+function addBuilding(E, p, z0, h) {
+  if (p.length < 6) return;
+  if (signedArea(p) < 0) p = reverseRing(p);
+  const bb = bboxOf(p), o = { p, z0, h, x0: bb[0], y0: bb[1], x1: bb[2], y1: bb[3] };
+  E.B.push(o); if (h > E.maxH) E.maxH = h; growBB(E.ext, bb);
+  const c = cellOf(E, (bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2); c.b.push(o); growBB(c.bb, bb); if (h > c.maxH) c.maxH = h;
+}
+function addTree(E, x, y, h, con) {
+  const r = Math.max(1.5, Math.min(9, 0.9 + 0.27 * h));
+  const o = { x, y, h, r, hc: Math.max(r + 0.5, h - r), con };
+  E.T.push(o);
+  const c = cellOf(E, x, y); c.t.push(o); growBB(c.bb, [x - r, y - r, x + r, y + r]); if (h > c.maxH) c.maxH = h;
+}
+function addCanopy(E, p, z0 = 3, z1 = 15) {
+  if (p.length < 6) return;
+  if (signedArea(p) < 0) p = reverseRing(p);
+  const bb = bboxOf(p), o = { p, z0, z1, x0: bb[0], y0: bb[1], x1: bb[2], y1: bb[3] };
+  E.CA.push(o); growBB(E.ext, bb);
+  const c = cellOf(E, (bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2); c.ca.push(o); growBB(c.bb, bb); if (z1 > c.maxH) c.maxH = z1;
+}
+function finalize(E) {
+  const [ex0, ey0, ex1, ey1] = E.ext[0] < Infinity ? E.ext : [-1000, -1000, 1000, 1000];
+  const gx0 = Math.floor((ex0 - 200) / RCELL), gy0 = Math.floor((ey0 - 200) / RCELL);
+  const nx = Math.max(1, Math.ceil((ex1 + 200) / RCELL) - gx0), ny = Math.max(1, Math.ceil((ey1 + 200) / RCELL) - gy0);
+  const N = nx * ny, lists = Array.from({ length: N }, () => []), tlists = Array.from({ length: N }, () => []), clists = Array.from({ length: N }, () => []);
+  const cmax = new Float32Array(N);
+  const reg = (L, idx, x0, y0, x1, y1, top) => {
+    const i0 = Math.max(0, Math.floor(x0 / RCELL) - gx0), i1 = Math.min(nx - 1, Math.floor(x1 / RCELL) - gx0);
+    const j0 = Math.max(0, Math.floor(y0 / RCELL) - gy0), j1 = Math.min(ny - 1, Math.floor(y1 / RCELL) - gy0);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * nx + i; L[k].push(idx); if (top > cmax[k]) cmax[k] = top; }
+  };
+  E.B.forEach((b, i) => reg(lists, i, b.x0, b.y0, b.x1, b.y1, b.h));
+  E.T.forEach((t, i) => reg(tlists, i, t.x - t.r, t.y - t.r, t.x + t.r, t.y + t.r, t.h));
+  E.CA.forEach((c, i) => reg(clists, i, c.x0, c.y0, c.x1, c.y1, c.z1));
+  E.grid = { gx0, gy0, nx, ny, lists, tlists, clists, cmax, bs: new Uint32Array(E.B.length), ts: new Uint32Array(E.T.length), cs: new Uint32Array(E.CA.length), gen: 1 };
+  return E;
+}
+
+function pointInPoly(p, x, y) {
+  let inside = false; const n = p.length / 2;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = p[2 * i], yi = p[2 * i + 1], xj = p[2 * j], yj = p[2 * j + 1];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function rayIntervals(p, x, y, ux, uy) {
+  const ts = [], n = p.length / 2;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const ax = p[2 * j], ay = p[2 * j + 1], ex = p[2 * i] - ax, ey = p[2 * i + 1] - ay, den = ux * ey - uy * ex;
+    if (Math.abs(den) < 1e-12) continue;
+    const wx = ax - x, wy = ay - y, t = (wx * ey - wy * ex) / den, s = (wx * uy - wy * ux) / den;
+    if (t >= 0 && s >= 0 && s <= 1) ts.push(t);
+  }
+  ts.sort((a, b) => a - b);
+  const out = []; let inside = pointInPoly(p, x, y), prev = 0;
+  for (const t of ts) { if (inside) out.push([prev, t]); inside = !inside; prev = t; }
+  return out;
+}
+function treeOpacity(con) { return con ? 0.8 : 0.15 + 0.75 * S.leaf; }
+// Share of direct sun reaching the ground at (x, y): 0 blocked, 1 clear.
+function sunAt(E, x, y, sun) {
+  if (!sun || sun.alt <= 0.002 || !E || !E.grid) return sun && sun.alt > 0.002 ? 1 : 0;
+  const g = E.grid, ux = Math.sin(sun.az), uy = Math.cos(sun.az), tanA = Math.tan(sun.alt), cosA = Math.cos(sun.alt), sinA = Math.sin(sun.alt);
+  const D = Math.min(Math.max(E.maxH, 40) / tanA, 4000);
+  g.gen++; if (g.gen > 4e9) { g.bs.fill(0); g.ts.fill(0); g.cs.fill(0); g.gen = 1; }
+  let ci = Math.floor(x / RCELL), cj = Math.floor(y / RCELL), trans = 1;
+  const si = ux > 0 ? 1 : -1, sj = uy > 0 ? 1 : -1;
+  const tDX = Math.abs(ux) < 1e-9 ? Infinity : RCELL / Math.abs(ux), tDY = Math.abs(uy) < 1e-9 ? Infinity : RCELL / Math.abs(uy);
+  let tMX = Math.abs(ux) < 1e-9 ? Infinity : (ux > 0 ? (ci + 1) * RCELL - x : x - ci * RCELL) / Math.abs(ux);
+  let tMY = Math.abs(uy) < 1e-9 ? Infinity : (uy > 0 ? (cj + 1) * RCELL - y : y - cj * RCELL) / Math.abs(uy);
+  let tCell = 0;
+  while (tCell <= D) {
+    const li = ci - g.gx0, lj = cj - g.gy0;
+    if (li < 0 || lj < 0 || li >= g.nx || lj >= g.ny) break;
+    const k = lj * g.nx + li;
+    if (g.cmax[k] > tCell * tanA) {
+      const L = g.lists[k];
+      for (let q = 0; q < L.length; q++) {
+        const bi = L[q]; if (g.bs[bi] === g.gen) continue; g.bs[bi] = g.gen;
+        const b = E.B[bi];
+        if (b.z0 > 0.5) {
+          for (const [a, c] of rayIntervals(b.p, x, y, ux, uy)) if (a * tanA < b.h && c * tanA > b.z0) return 0;
+          continue;
+        }
+        if (x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1 && pointInPoly(b.p, x, y)) return 0;
+        const p = b.p, n = p.length / 2; let tmin = Infinity;
+        for (let i = 0, j = n - 1; i < n; j = i++) {
+          const ax = p[2 * j], ay = p[2 * j + 1], ex = p[2 * i] - ax, ey = p[2 * i + 1] - ay, den = ux * ey - uy * ex;
+          if (Math.abs(den) < 1e-12) continue;
+          const wx = ax - x, wy = ay - y, t = (wx * ey - wy * ex) / den, s = (wx * uy - wy * ux) / den;
+          if (t >= 0 && s >= 0 && s <= 1 && t < tmin) tmin = t;
+        }
+        if (tmin < Infinity && tmin * tanA < b.h) return 0;
+      }
+      if (S.trees) {
+        const TL = g.tlists[k];
+        for (let q = 0; q < TL.length; q++) {
+          const ti = TL[q]; if (g.ts[ti] === g.gen) continue; g.ts[ti] = g.gen;
+          const t = E.T[ti], vx = t.x - x, vy = t.y - y, vz = t.hc, tt = (vx * ux + vy * uy) * cosA + vz * sinA;
+          if (tt > 0 && vx * vx + vy * vy + vz * vz - tt * tt < t.r * t.r) trans *= 1 - treeOpacity(t.con);
+        }
+        const CL = g.clists[k];
+        for (let q = 0; q < CL.length; q++) {
+          const c2 = CL[q]; if (g.cs[c2] === g.gen) continue; g.cs[c2] = g.gen;
+          const c = E.CA[c2];
+          for (const [a, b] of rayIntervals(c.p, x, y, ux, uy)) if (a * tanA < c.z1 && b * tanA > c.z0) { trans *= 1 - treeOpacity(false); break; }
+        }
+        if (trans < 0.05) return trans;
+      }
+    }
+    if (tMX < tMY) { tCell = tMX; tMX += tDX; ci += si; } else { tCell = tMY; tMY += tDY; cj += sj; }
+  }
+  return trans;
+}
+const SUNNY = 0.6;
+
+/* --- shadow geometry --- */
+function addRing(path, p, dx = 0, dy = 0) {
+  path.moveTo(p[0] + dx, p[1] + dy);
+  for (let i = 2; i < p.length; i += 2) path.lineTo(p[i] + dx, p[i + 1] + dy);
+  path.closePath();
+}
+function prismShadow(path, p, d0x, d0y, dx, dy) {
+  const n = p.length / 2, ex = dx - d0x, ey = dy - d0y;
+  addRing(path, p, d0x, d0y); addRing(path, p, dx, dy);
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n, ax = p[2 * i], ay = p[2 * i + 1], bx = p[2 * j], by = p[2 * j + 1];
+    if ((bx - ax) * ey - (by - ay) * ex < 0) { path.moveTo(ax + d0x, ay + d0y); path.lineTo(ax + dx, ay + dy); path.lineTo(bx + dx, by + dy); path.lineTo(bx + d0x, by + d0y); path.closePath(); }
+  }
+}
+function shadowPaths(c) {
+  if (c.shKey === S.sunKey) return c.sh;
+  const sun = S.sun, tanA = Math.tan(sun.alt), sinA = Math.sin(sun.alt), L0 = 1 / tanA;
+  const dxu = -Math.sin(sun.az), dyu = -Math.cos(sun.az), rot = Math.atan2(dyu, dxu);
+  const b = new Path2D(), dec = new Path2D(), con = new Path2D(), bb = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const o of c.b) {
+    const a = Math.min(o.z0 * L0, MAXL), L = Math.min(o.h * L0, MAXL);
+    prismShadow(b, o.p, dxu * a, dyu * a, dxu * L, dyu * L);
+    growBB(bb, [Math.min(o.x0, o.x0 + dxu * L), Math.min(o.y0, o.y0 + dyu * L), Math.max(o.x1, o.x1 + dxu * L), Math.max(o.y1, o.y1 + dyu * L)]);
+  }
+  for (const t of c.t) {
+    const L = Math.min(t.hc * L0, MAXL), cx = t.x + dxu * L, cy = t.y + dyu * L, ra = Math.min(t.r / sinA, 300), pp = t.con ? con : dec;
+    pp.moveTo(cx + ra * Math.cos(rot), cy + ra * Math.sin(rot)); pp.ellipse(cx, cy, ra, t.r, rot, 0, Math.PI * 2);
+    growBB(bb, [Math.min(t.x, cx) - ra, Math.min(t.y, cy) - ra, Math.max(t.x, cx) + ra, Math.max(t.y, cy) + ra]);
+  }
+  for (const o of c.ca) {
+    const a = Math.min(o.z0 * L0, MAXL), L = Math.min(o.z1 * L0, MAXL);
+    prismShadow(dec, o.p, dxu * a, dyu * a, dxu * L, dyu * L);
+    growBB(bb, [Math.min(o.x0, o.x0 + dxu * L), Math.min(o.y0, o.y0 + dyu * L), Math.max(o.x1, o.x1 + dxu * L), Math.max(o.y1, o.y1 + dyu * L)]);
+  }
+  c.sh = { b, dec, con }; c.shKey = S.sunKey; c.shbb = bb;
+  return c.sh;
+}
+function crownPaths(c) {
+  if (c.crowns) return c.crowns;
+  const d = new Path2D(), k = new Path2D();
+  for (const t of c.t) { const p = t.con ? k : d; p.moveTo(t.x + t.r, t.y); p.arc(t.x, t.y, t.r, 0, Math.PI * 2); }
+  c.crowns = { d, k };
+  return c.crowns;
+}
+
+/* ======================= Toronto detail layer ======================= */
+function decodeRing(arr, start, U) {
+  const n = (arr.length - start) / 2, out = new Float32Array(n * 2);
+  let x = 0, y = 0;
+  for (let i = 0; i < n; i++) { x += arr[start + 2 * i]; y += arr[start + 2 * i + 1]; out[2 * i] = x / U; out[2 * i + 1] = y / U; }
+  return out;
+}
+function loadToronto() {
+  if (S.toronto || S.torontoLoading) return;
+  S.torontoLoading = true;
+  fetch(TORONTO.url).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); }).then((d) => {
+    const E = makeEngine(d.origin), U = d.unit;
+    for (const a of d.b) addBuilding(E, decodeRing(a, 1, U), 0, a[0] / 10);
+    let tx = 0, ty = 0;
+    for (let i = 0; i < d.t.length; i += 4) { tx += d.t[i]; ty += d.t[i + 1]; addTree(E, tx / U, ty / U, d.t[i + 2] / 10, d.t[i + 3] === 1); }
+    for (const a of d.ca) addCanopy(E, decodeRing(a, 0, U));
+    E.detail = true;
+    S.toronto = finalize(E);
+    refresh();
+  }).catch(() => { S.torontoLoading = false; });
+}
+function inToronto(lon, lat) { return lon > TORONTO.w + 0.004 && lon < TORONTO.e - 0.004 && lat > TORONTO.s + 0.003 && lat < TORONTO.n - 0.003; }
+function nearToronto(lon, lat) { return lon > TORONTO.w - 0.1 && lon < TORONTO.e + 0.1 && lat > TORONTO.s - 0.1 && lat < TORONTO.n + 0.1; }
+
+/* ======================= map ======================= */
+function readColors() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const k of ['ground', 'shade', 'bldg', 'bldg-edge', 'road', 'road-edge', 'park', 'wood', 'water', 'label', 'halo', 'sun', 'dot', 'tree', 'tree-fall', 'tree-bare', 'conifer', 'ink'])
+    S.colors[k] = cs.getPropertyValue('--' + k).trim();
+  S.colors.shadeA = parseFloat(cs.getPropertyValue('--shade-a')) || 0.35;
+}
+readColors();
+const FONT = ['Noto Sans Regular'], FONTB = ['Noto Sans Bold'];
+function style() {
+  const C = S.colors;
+  const zw = (a, b) => ['interpolate', ['exponential', 1.6], ['zoom'], 12, a, 18, b];
+  return {
+    version: 8,
+    glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+    sources: { omt: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' } },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': C.ground } },
+      { id: 'wood', type: 'fill', source: 'omt', 'source-layer': 'landcover', filter: ['==', ['get', 'class'], 'wood'], paint: { 'fill-color': C.wood } },
+      { id: 'park', type: 'fill', source: 'omt', 'source-layer': 'park', paint: { 'fill-color': C.park } },
+      { id: 'grass', type: 'fill', source: 'omt', 'source-layer': 'landcover', filter: ['==', ['get', 'class'], 'grass'], paint: { 'fill-color': C.park, 'fill-opacity': 0.8 } },
+      { id: 'water', type: 'fill', source: 'omt', 'source-layer': 'water', paint: { 'fill-color': C.water } },
+      { id: 'road-minor', type: 'line', source: 'omt', 'source-layer': 'transportation', minzoom: 12,
+        filter: ['match', ['get', 'class'], ['minor', 'service', 'track'], true, false],
+        layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': C.road, 'line-width': zw(0.8, 14) } },
+      { id: 'road-path', type: 'line', source: 'omt', 'source-layer': 'transportation', minzoom: 15,
+        filter: ['==', ['get', 'class'], 'path'], paint: { 'line-color': C.road, 'line-width': zw(0.5, 3), 'line-dasharray': [2, 1.5] } },
+      { id: 'road-major-case', type: 'line', source: 'omt', 'source-layer': 'transportation', minzoom: 8,
+        filter: ['match', ['get', 'class'], ['primary', 'secondary', 'tertiary', 'trunk', 'motorway'], true, false],
+        layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': C['road-edge'], 'line-width': zw(2.2, 26) } },
+      { id: 'road-major', type: 'line', source: 'omt', 'source-layer': 'transportation', minzoom: 8,
+        filter: ['match', ['get', 'class'], ['primary', 'secondary', 'tertiary', 'trunk', 'motorway'], true, false],
+        layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': C.road, 'line-width': zw(1.4, 22) } },
+      { id: 'rail', type: 'line', source: 'omt', 'source-layer': 'transportation', minzoom: 13, filter: ['==', ['get', 'class'], 'rail'],
+        paint: { 'line-color': C['road-edge'], 'line-width': 1.2, 'line-dasharray': [3, 2] } },
+      { id: 'building', type: 'fill', source: 'omt', 'source-layer': 'building', minzoom: 13, paint: { 'fill-color': C.bldg, 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 15, 1] } },
+      { id: 'building-edge', type: 'line', source: 'omt', 'source-layer': 'building', minzoom: 16, paint: { 'line-color': C['bldg-edge'], 'line-width': 0.6 } },
+      { id: 'road-label', type: 'symbol', source: 'omt', 'source-layer': 'transportation_name', minzoom: 13,
+        layout: { 'symbol-placement': 'line', 'text-field': ['coalesce', ['get', 'name_en'], ['get', 'name']], 'text-font': FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 13, 10, 18, 13], 'text-max-angle': 30 },
+        paint: { 'text-color': C.label, 'text-halo-color': C.halo, 'text-halo-width': 1.6, 'text-opacity': 0.8 } },
+      { id: 'place-label', type: 'symbol', source: 'omt', 'source-layer': 'place', maxzoom: 15,
+        filter: ['match', ['get', 'class'], ['city', 'town', 'village', 'suburb', 'neighbourhood', 'quarter'], true, false],
+        layout: { 'text-field': ['coalesce', ['get', 'name_en'], ['get', 'name']], 'text-font': FONTB,
+          'text-size': ['match', ['get', 'class'], 'city', 16, 'town', 14, 12], 'text-transform': ['match', ['get', 'class'], ['suburb', 'neighbourhood', 'quarter'], 'uppercase', 'none'], 'text-letter-spacing': 0.04 },
+        paint: { 'text-color': C.label, 'text-halo-color': C.halo, 'text-halo-width': 1.6 } },
+    ],
+  };
+}
+let startView = { center: [-79.4125, 43.6492], zoom: 15.6 };
+const hm = location.hash.match(/^#([\d.]+)\/(-?[\d.]+)\/(-?[\d.]+)/);
+if (hm) startView = { zoom: +hm[1], center: [+hm[3], +hm[2]] };
+const map = new maplibregl.Map({
+  container: 'map', style: style(), center: startView.center, zoom: startView.zoom, minZoom: 2, maxZoom: 19,
+  dragRotate: false, pitchWithRotate: false, touchPitch: false, attributionControl: false, fadeDuration: 0,
+});
+map.touchZoomRotate.disableRotation();
+
+map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: '<a href="https://open.toronto.ca/" target="_blank" rel="noopener">City of Toronto Open Data</a>' }), 'bottom-right');
+
+const shadeCv = document.createElement('canvas'), shadeCtx = shadeCv.getContext('2d');
+const maskCv = document.createElement('canvas'), maskCtx = maskCv.getContext('2d');
+shadeCv.width = shadeCv.height = maskCv.width = maskCv.height = 4;
+
+function sunIcon(fill, ring, size = 44) {
+  const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d'), m = size / 2;
+  g.strokeStyle = ring; g.lineWidth = size * 0.16; g.lineCap = 'round';
+  const rays = () => { for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; g.beginPath(); g.moveTo(m + Math.cos(a) * size * 0.3, m + Math.sin(a) * size * 0.3); g.lineTo(m + Math.cos(a) * size * 0.42, m + Math.sin(a) * size * 0.42); g.stroke(); } };
+  rays(); g.strokeStyle = fill; g.lineWidth = size * 0.07; rays();
+  g.beginPath(); g.arc(m, m, size * 0.21, 0, Math.PI * 2); g.fillStyle = ring; g.fill();
+  g.beginPath(); g.arc(m, m, size * 0.16, 0, Math.PI * 2); g.fillStyle = fill; g.fill();
+  return g.getImageData(0, 0, size, size);
+}
+function addMapExtras() {
+  const C = S.colors;
+  if (map.hasImage('sun')) map.removeImage('sun');
+  map.addImage('sun', sunIcon(C.sun, C.halo), { pixelRatio: 2 });
+  if (!map.getSource('shade')) {
+    map.addSource('shade', { type: 'image', url: EMPTY_PNG, coordinates: [[0, 0.001], [0.001, 0.001], [0.001, 0], [0, 0]] });
+    map.addLayer({ id: 'shade', type: 'raster', source: 'shade', paint: { 'raster-opacity': 1, 'raster-fade-duration': 0, 'raster-resampling': 'linear' } }, 'building');
+    map.addSource('spots', { type: 'geojson', data: fc([]) });
+    map.addSource('sel', { type: 'geojson', data: fc([]) });
+    map.addSource('me', { type: 'geojson', data: fc([]) });
+  }
+  const spotLayers = [
+    { id: 'spot-dot', type: 'circle', source: 'spots', filter: ['all', ['==', ['get', 'sun'], 0], ['!=', ['get', 'k'], 'p']],
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2.5, 17, 5], 'circle-color': C.dot, 'circle-stroke-color': C.halo, 'circle-stroke-width': 1.5 } },
+    { id: 'spot-sun', type: 'symbol', source: 'spots', filter: ['all', ['==', ['get', 'sun'], 1], ['!=', ['get', 'k'], 'p']],
+      layout: { 'icon-image': 'sun', 'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.6, 17, 1], 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+        'text-field': ['step', ['zoom'], '', 16, ['get', 'name']], 'text-font': FONTB, 'text-size': 12, 'text-anchor': 'left', 'text-offset': [1.1, 0], 'text-optional': true, 'text-max-width': 10 },
+      paint: { 'text-color': C.label, 'text-halo-color': C.halo, 'text-halo-width': 1.8 } },
+    { id: 'spot-name', type: 'symbol', source: 'spots', minzoom: 17, filter: ['all', ['==', ['get', 'sun'], 0], ['!=', ['get', 'k'], 'p']],
+      layout: { 'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 11.5, 'text-anchor': 'left', 'text-offset': [0.8, 0], 'text-optional': true, 'text-max-width': 10 },
+      paint: { 'text-color': C.label, 'text-opacity': 0.7, 'text-halo-color': C.halo, 'text-halo-width': 1.6 } },
+    { id: 'spot-park', type: 'symbol', source: 'spots', filter: ['==', ['get', 'k'], 'p'],
+      layout: { 'icon-image': ['case', ['==', ['get', 'sun'], 1], 'sun', ''], 'icon-size': 0.9, 'icon-anchor': 'bottom', 'icon-allow-overlap': true,
+        'text-field': ['format', ['get', 'name'], { 'text-font': ['literal', FONTB] }, '\n', {}, ['get', 'pct'], { 'font-scale': 0.88 }],
+        'text-font': FONT, 'text-size': 12, 'text-anchor': 'top', 'text-offset': [0, 0.2], 'text-max-width': 9 },
+      paint: { 'text-color': C.label, 'text-halo-color': C.halo, 'text-halo-width': 1.8 } },
+    { id: 'me-acc', type: 'circle', source: 'me', paint: { 'circle-radius': ['get', 'px'], 'circle-color': C.ink, 'circle-opacity': 0.08 } },
+    { id: 'me-dot', type: 'circle', source: 'me', paint: { 'circle-radius': 6, 'circle-color': C.ink, 'circle-stroke-color': C.halo, 'circle-stroke-width': 3 } },
+    { id: 'sel-ring', type: 'circle', source: 'sel', paint: { 'circle-radius': 12, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': C.ink, 'circle-stroke-width': 3 } },
+  ];
+  for (const l of spotLayers) { if (map.getLayer(l.id)) map.removeLayer(l.id); map.addLayer(l); }
+}
+const fc = (features) => ({ type: 'FeatureCollection', features });
+const EMPTY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+let shadeUrl = null, shadeSeq = 0;
+function pushShade(coords) {
+  const seq = ++shadeSeq;
+  shadeCv.toBlob((blob) => {
+    if (!blob || seq !== shadeSeq) return;
+    const url = URL.createObjectURL(blob), old = shadeUrl; shadeUrl = url;
+    map.getSource('shade').updateImage({ url, coordinates: coords });
+    if (old) setTimeout(() => URL.revokeObjectURL(old), 4000);
+  }, 'image/png');
+}
+
+/* ======================= engine from tiles ======================= */
+let engineKey = '';
+function ringsOf(geom) {
+  if (geom.type === 'Polygon') return [geom.coordinates[0]];
+  if (geom.type === 'MultiPolygon') return geom.coordinates.map((p) => p[0]);
+  return [];
+}
+function buildTileEngine() {
+  const c = map.getCenter(), E = makeEngine([+c.lng.toFixed(4), +c.lat.toFixed(4)]);
+  const toRing = (coords) => { const p = new Float32Array(coords.length * 2 - 2); for (let i = 0; i < coords.length - 1; i++) { const [x, y] = toLocal(E, coords[i][0], coords[i][1]); p[2 * i] = x; p[2 * i + 1] = y; } return p; };
+  const seen = new Set();
+  for (const f of map.querySourceFeatures('omt', { sourceLayer: 'building' })) {
+    const pr = f.properties || {};
+    if (pr.hide_3d) continue;
+    const h = Math.min(+pr.render_height || 6, 600), z0 = Math.min(+pr.render_min_height || 0, h - 1);
+    for (const r of ringsOf(f.geometry)) {
+      if (r.length < 4) continue;
+      const key = r.length + ':' + r[0][0].toFixed(6) + ':' + r[0][1].toFixed(6);
+      if (seen.has(key)) continue; seen.add(key);
+      addBuilding(E, toRing(r), z0 > 0.5 ? z0 : 0, h);
+    }
+  }
+  for (const f of map.querySourceFeatures('omt', { sourceLayer: 'landcover', filter: ['==', ['get', 'class'], 'wood'] })) {
+    for (const r of ringsOf(f.geometry)) if (r.length >= 4) addCanopy(E, toRing(r));
+  }
+  return finalize(E);
+}
+function activeEngine() {
+  const c = map.getCenter();
+  if (S.toronto && inToronto(c.lng, c.lat)) return S.toronto;
+  return S.tileEngine;
+}
+
+/* ======================= places from tiles ======================= */
+const POI = { cafe: 'c', ice_cream: 'c', bakery: 'c', bar: 'b', beer: 'b', pub: 'b', biergarten: 'b', restaurant: 'r', fast_food: 'r' };
+const KNAME = { c: 'Café', b: 'Bar', r: 'Food', p: 'Park' };
+function frontage(E, x, y) {
+  // a shop point inside a building is moved just outside its nearest open wall (patio / street side)
+  if (!E || !E.grid) return [x, y];
+  const g = E.grid, li = Math.floor(x / RCELL) - g.gx0, lj = Math.floor(y / RCELL) - g.gy0;
+  if (li < 0 || lj < 0 || li >= g.nx || lj >= g.ny) return [x, y];
+  const near = g.lists[lj * g.nx + li].map((i) => E.B[i]);
+  const host = near.find((b) => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1 && pointInPoly(b.p, x, y));
+  if (!host) return [x, y];
+  const p = host.p, n = p.length / 2, cand = [];
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n, ax = p[2 * i], ay = p[2 * i + 1], ex = p[2 * j] - ax, ey = p[2 * j + 1] - ay, L2 = ex * ex + ey * ey || 1;
+    const t = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / L2)), qx = ax + ex * t, qy = ay + ey * t, L = Math.sqrt(L2);
+    cand.push([Math.hypot(qx - x, qy - y), qx + (ey / L) * 2, qy - (ex / L) * 2]); // outward normal of a counter-clockwise ring
+  }
+  cand.sort((a, b) => a[0] - b[0]);
+  for (const [, qx, qy] of cand) if (!near.some((b) => qx >= b.x0 && qx <= b.x1 && qy >= b.y0 && qy <= b.y1 && pointInPoly(b.p, qx, qy))) return [qx, qy];
+  return [x, y];
+}
+function collectSpots(E) {
+  const out = [], seen = new Set();
+  for (const f of map.querySourceFeatures('omt', { sourceLayer: 'poi' })) {
+    const pr = f.properties || {}, k = POI[pr.subclass] || POI[pr.class];
+    if (!k || !pr.name || f.geometry.type !== 'Point') continue;
+    const [lon, lat] = f.geometry.coordinates, key = pr.name + '|' + lon.toFixed(4) + '|' + lat.toFixed(4);
+    if (seen.has(key)) continue; seen.add(key);
+    let [x, y] = toLocal(E, lon, lat);
+    [x, y] = frontage(E, x, y);
+    out.push({ name: pr.name_en || pr.name, k, x, y, lon, lat });
+  }
+  // parks: named park points from the POI layer, matched to the park/grass polygon that contains them
+  const polys = [];
+  for (const f of map.querySourceFeatures('omt', { sourceLayer: 'landcover' })) {
+    const pr = f.properties || {};
+    if (!['park', 'garden', 'recreation_ground', 'village_green', 'grass', 'dog_park'].includes(pr.subclass)) continue;
+    for (const r of ringsOf(f.geometry)) {
+      if (r.length < 4) continue;
+      const p = new Float32Array(r.length * 2 - 2);
+      for (let i = 0; i < r.length - 1; i++) { const [x, y] = toLocal(E, r[i][0], r[i][1]); p[2 * i] = x; p[2 * i + 1] = y; }
+      const ar = Math.abs(signedArea(p)); if (ar < 1500) continue;
+      polys.push({ p, a: ar, bb: bboxOf(p) });
+    }
+  }
+  const parks = new Map();
+  for (const f of map.querySourceFeatures('omt', { sourceLayer: 'poi' })) {
+    const pr = f.properties || {};
+    if (pr.class !== 'park' || !pr.name || f.geometry.type !== 'Point') continue;
+    const [x, y] = toLocal(E, f.geometry.coordinates[0], f.geometry.coordinates[1]);
+    let best = null;
+    for (const pg of polys) if (x >= pg.bb[0] && x <= pg.bb[2] && y >= pg.bb[1] && y <= pg.bb[3] && pointInPoly(pg.p, x, y) && (!best || pg.a > best.a)) best = pg;
+    if (!best) continue;
+    const name = pr.name_en || pr.name, prev = parks.get(name);
+    if (!prev || prev.a < best.a) parks.set(name, { a: best.a, p: best.p, name });
+  }
+  for (const pk of parks.values()) {
+    const [x0, y0, x1, y1] = bboxOf(pk.p), step = Math.max(10, Math.sqrt(pk.a / 36)), samp = [];
+    for (let y = y0 + step / 2; y < y1; y += step) for (let x = x0 + step / 2; x < x1; x += step) if (pointInPoly(pk.p, x, y)) samp.push(x, y);
+    if (samp.length < 6) continue;
+    // label point: sample closest to the centroid
+    let cx = 0, cy = 0; for (let i = 0; i < samp.length; i += 2) { cx += samp[i]; cy += samp[i + 1]; } cx /= samp.length / 2; cy /= samp.length / 2;
+    let bx = samp[0], by = samp[1], bd = Infinity;
+    for (let i = 0; i < samp.length; i += 2) { const d = Math.hypot(samp[i] - cx, samp[i + 1] - cy); if (d < bd) { bd = d; bx = samp[i]; by = samp[i + 1]; } }
+    const [lon, lat] = toLL(E, bx, by);
+    out.push({ name: pk.name, k: 'p', x: bx, y: by, lon, lat, samp: new Float32Array(samp.slice(0, 160)) });
+  }
+  return out;
+}
+function spotSun(E, s) {
+  if (!s.samp) return sunAt(E, s.x, s.y, S.sun);
+  let n = 0, on = 0;
+  for (let i = 0; i < s.samp.length; i += 2) { n++; if (sunAt(E, s.samp[i], s.samp[i + 1], S.sun) >= SUNNY) on++; }
+  return on / n;
+}
+
+/* ======================= render shade ======================= */
+let refreshT = 0, dirty = false, ready = false;
+function refresh() { dirty = true; clearTimeout(refreshT); refreshT = setTimeout(doRefresh, 60); }
+function doRefresh() {
+  if (!ready || !S.sun || map.isMoving()) return;
+  dirty = false;
+  const z = map.getZoom(), c = map.getCenter();
+  if (nearToronto(c.lng, c.lat)) loadToronto();
+  if (z < MIN_SHADE_ZOOM) {
+    map.setLayoutProperty('shade', 'visibility', 'none');
+    map.getSource('spots').setData(fc([])); S.spots = []; S.engine = null;
+    renderNearby(); return;
+  }
+  map.setLayoutProperty('shade', 'visibility', 'visible');
+  // engine: Toronto detail layer when inside it, otherwise buildings from the loaded tiles
+  if (!(S.toronto && inToronto(c.lng, c.lat))) {
+    const key = map.getBounds().toArray().flat().map((v) => v.toFixed(4)).join(',') + '|' + Math.floor(z);
+    if (key !== engineKey || !S.tileEngine) { S.tileEngine = buildTileEngine(); engineKey = key; }
+  }
+  const E = activeEngine(); S.engine = E;
+  if (!E) return;
+  // spots in view
+  S.spots = collectSpots(E);
+  // canvas covering the view plus a margin
+  const b = map.getBounds(), w = b.getWest(), e = b.getEast(), s = b.getSouth(), n = b.getNorth();
+  const mx = (e - w) * 0.2, my = (n - s) * 0.2, W = w - mx, Ea = e + mx, So = s - my, No = n + my;
+  const cnv = map.getCanvas(), scale = Math.min(window.devicePixelRatio || 1, 1.5);
+  const pw = Math.min(3072, Math.round(cnv.clientWidth * 1.4 * scale)), ph = Math.min(3072, Math.round(cnv.clientHeight * 1.4 * scale));
+  if (shadeCv.width !== pw || shadeCv.height !== ph) { shadeCv.width = maskCv.width = pw; shadeCv.height = maskCv.height = ph; }
+  const [xW, yN] = toLocal(E, W, No), [xE, yS] = toLocal(E, Ea, So);
+  const kx = pw / (xE - xW), ky = ph / (yN - yS);
+  const C = S.colors, sun = S.sun;
+  shadeCtx.setTransform(1, 0, 0, 1, 0, 0); shadeCtx.clearRect(0, 0, pw, ph);
+  if (sun.alt <= 0.002) {
+    shadeCtx.globalAlpha = C.shadeA; shadeCtx.fillStyle = C.shade; shadeCtx.fillRect(0, 0, pw, ph); shadeCtx.globalAlpha = 1;
+  } else {
+    maskCtx.setTransform(1, 0, 0, 1, 0, 0); maskCtx.globalCompositeOperation = 'source-over'; maskCtx.clearRect(0, 0, pw, ph);
+    maskCtx.setTransform(kx, 0, 0, -ky, -xW * kx, yN * ky); maskCtx.fillStyle = '#000';
+    const view = [xW, yS, xE, yN], tanA = Math.tan(sun.alt), dxu = -Math.sin(sun.az), dyu = -Math.cos(sun.az);
+    for (const cell of E.cells.values()) {
+      const L = Math.min(cell.maxH / tanA, MAXL), dx = dxu * L, dy = dyu * L;
+      const reach = [Math.min(cell.bb[0], cell.bb[0] + dx), Math.min(cell.bb[1], cell.bb[1] + dy), Math.max(cell.bb[2], cell.bb[2] + dx), Math.max(cell.bb[3], cell.bb[3] + dy)];
+      if (!overlaps(reach, view)) continue;
+      const sh = shadowPaths(cell);
+      if (!overlaps(sh.shbb || cell.shbb, view)) continue;
+      maskCtx.globalAlpha = 1; maskCtx.fill(sh.b, 'nonzero');
+      if (S.trees) { maskCtx.globalAlpha = treeOpacity(false); maskCtx.fill(sh.dec, 'nonzero'); maskCtx.globalAlpha = treeOpacity(true); maskCtx.fill(sh.con, 'nonzero'); }
+    }
+    maskCtx.globalAlpha = 1; maskCtx.setTransform(1, 0, 0, 1, 0, 0);
+    maskCtx.globalCompositeOperation = 'source-in'; maskCtx.fillStyle = C.shade; maskCtx.fillRect(0, 0, pw, ph); maskCtx.globalCompositeOperation = 'source-over';
+    shadeCtx.globalAlpha = C.shadeA; shadeCtx.drawImage(maskCv, 0, 0); shadeCtx.globalAlpha = 1;
+  }
+  // tree crowns (Toronto detail layer)
+  if (S.trees && E.T.length && z >= 15) {
+    shadeCtx.setTransform(kx, 0, 0, -ky, -xW * kx, yN * ky);
+    const view = [xW, yS, xE, yN];
+    shadeCtx.globalAlpha = 0.35 + 0.35 * S.leaf; shadeCtx.fillStyle = crownColour();
+    for (const cell of E.cells.values()) if (cell.t.length && overlaps(cell.bb, view)) shadeCtx.fill(crownPaths(cell).d);
+    shadeCtx.globalAlpha = 0.6; shadeCtx.fillStyle = C.conifer;
+    for (const cell of E.cells.values()) if (cell.t.length && overlaps(cell.bb, view)) shadeCtx.fill(crownPaths(cell).k);
+    shadeCtx.globalAlpha = 1; shadeCtx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  pushShade([[W, No], [Ea, No], [Ea, So], [W, So]]);
+  updateSpots();
+}
+function hexRgb(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map((c) => c + c).join(''); const n = parseInt(h, 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function mixHex(a, b, f) { const A = hexRgb(a), B2 = hexRgb(b); return `rgb(${A.map((v, i) => Math.round(v + (B2[i] - v) * f)).join(',')})`; }
+function crownColour() {
+  const C = S.colors;
+  if (S.leaf >= 0.99) return C.tree;
+  if (S.leaf <= 0.01) return C['tree-bare'];
+  return S.autumn ? mixHex(C['tree-fall'], C.tree, Math.max(0, S.leaf - 0.35) / 0.65) : mixHex(C['tree-bare'], C.tree, S.leaf);
+}
+function updateSpots() {
+  const E = S.engine; if (!E) return;
+  const feats = [];
+  for (const s of S.spots) {
+    if (!S.filters[s.k]) continue;
+    s.f = spotSun(E, s);
+    const sunny = s.k === 'p' ? s.f >= 0.5 : s.f >= SUNNY;
+    feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: toLL(E, s.x, s.y) },
+      properties: { name: s.name, k: s.k, sun: sunny ? 1 : 0, pct: s.k === 'p' ? Math.round(s.f * 100) + '% in sun' : '', i: S.spots.indexOf(s) } });
+  }
+  map.getSource('spots').setData(fc(feats));
+  if (S.sel) renderDetail(); else renderNearby();
+}
+
+/* ======================= day + time ======================= */
+function leafFor(day, lat) {
+  if (Math.abs(lat) < 23.5) { S.autumn = false; return 1; }
+  let doy = Math.round((Date.UTC(day.y, day.m - 1, day.d) - Date.UTC(day.y, 0, 1)) / 864e5) + 1;
+  if (lat < 0) doy = ((doy + 182 - 1) % 365) + 1;
+  S.autumn = doy > 200;
+  if (doy < 110 || doy > 314) return 0;
+  if (doy < 145) return (doy - 110) / 35;
+  if (doy <= 283) return 1;
+  return (314 - doy) / 31;
+}
+const todayParts = () => { const p = zParts(Date.now()); return { y: p.y, m: p.m, d: p.d }; };
+const addDays = (day, n) => { const t = new Date(Date.UTC(day.y, day.m - 1, day.d + n)); return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() }; };
+const sameDay = (a, b) => a && b && a.y === b.y && a.m === b.m && a.d === b.d;
+function computeDay() {
+  const { y, m, d } = S.day, [lon, lat] = S.loc;
+  const t0 = localToMs(y, m, d, 0), t1 = localToMs(y, m, d, 24 * 60), noon = localToMs(y, m, d, 12 * 60);
+  const thr = -0.833 * RAD, step = 120000, alt = (t) => sunPos(t, lat, lon).alt;
+  let rise = 0, set = 0, prev = alt(t0);
+  for (let t = t0 + step; t <= t1; t += step) {
+    const a = alt(t);
+    if (prev < thr && a >= thr && !rise) rise = t - step * (a - thr) / (a - prev);
+    if (prev >= thr && a < thr) set = t - step * (a - thr) / (a - prev);
+    prev = a;
+  }
+  S.polar = '';
+  if (!rise && !set) { if (alt(noon) < thr) { S.polar = 'night'; rise = noon - 36e5; set = noon + 36e5; } else { S.polar = 'day'; rise = t0; set = t1 - 1; } }
+  else { if (!rise) rise = t0; if (!set || set < rise) set = t1 - 1; }
+  S.rise = rise; S.set = set;
+  const first = Math.ceil((rise - t0) / (STEP_MIN * 6e4)), last = Math.floor((set - t0) / (STEP_MIN * 6e4));
+  S.slots = []; for (let i = first; i <= last; i++) S.slots.push(localToMs(y, m, d, i * STEP_MIN));
+  if (!S.slots.length) S.slots.push(noon);
+  $('slider').max = String(Math.max(0, S.slots.length - 1));
+  $('rise').textContent = S.polar === 'day' ? 'Sun up all day' : S.polar === 'night' ? 'Sun stays down' : 'Sunrise ' + fmtT(rise);
+  $('set').textContent = S.polar ? '' : 'Sunset ' + fmtT(set);
+  const stops = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = S.slots[0] + (S.slots[S.slots.length - 1] - S.slots[0]) * i / 12, a = Math.max(0, alt(t)) / (70 * RAD);
+    stops.push(`color-mix(in srgb, var(--sun) ${Math.round(15 + 85 * Math.min(1, a * 1.6))}%, var(--chip)) ${Math.round(i / 12 * 100)}%`);
+  }
+  $('slider').style.setProperty('--trackbg', `linear-gradient(90deg, ${stops.join(', ')})`);
+}
+function nearestSlot(ms) { let best = 0, bd = Infinity; S.slots.forEach((t, i) => { const d = Math.abs(t - ms); if (d < bd) { bd = d; best = i; } }); return best; }
+function setDay(day) {
+  S.day = day; S.leaf = leafFor(day, S.loc[1]); computeDay();
+  const td = todayParts();
+  $('dToday').setAttribute('aria-pressed', String(sameDay(day, td)));
+  $('dTomorrow').setAttribute('aria-pressed', String(sameDay(day, addDays(td, 1))));
+  $('dPickWrap').setAttribute('aria-pressed', String(!sameDay(day, td) && !sameDay(day, addDays(td, 1))));
+  $('dPick').value = `${day.y}-${String(day.m).padStart(2, '0')}-${String(day.d).padStart(2, '0')}`;
+  $('treesLbl').textContent = S.leaf >= 0.99 ? 'Trees · in leaf' : S.leaf <= 0.01 ? 'Trees · bare' : `Trees · ${Math.round(S.leaf * 100)}% leaves`;
+}
+let noteT = 0;
+function note(msg) { const n = $('note'); n.textContent = msg; n.hidden = false; clearTimeout(noteT); noteT = setTimeout(() => (n.hidden = true), 4500); }
+function goLive() {
+  const now = Date.now(); setDay(todayParts());
+  if (S.polar === 'night') { setTime(S.slots[0], false); note('The sun doesn’t rise here today.'); return; }
+  if (now < S.rise || now > S.set) {
+    if (now > S.set) setDay(addDays(todayParts(), 1));
+    setTime(S.slots[now > S.set ? nearestSlot(S.rise + 3 * 36e5) : 0], false);
+    note(now > S.set ? 'The sun has set. Showing tomorrow morning.' : 'Before sunrise. Showing the first sun.');
+  } else setTime(now, true);
+}
+function setTime(ms, live) {
+  if (ms == null) return;
+  S.ms = ms; S.live = live; S.sun = sunPos(ms, S.loc[1], S.loc[0]);
+  S.sunKey = Math.round(S.sun.alt * 1e4) + ':' + Math.round(S.sun.az * 1e4) + ':' + S.trees;
+  $('slider').value = String(nearestSlot(ms));
+  $('live').classList.toggle('on', live); $('live').setAttribute('aria-pressed', String(live));
+  $('time').textContent = fmtT(ms);
+  const alt = S.sun.alt / RAD;
+  const zone = TZ !== DEVICE_TZ ? ` · ${TZ.split('/').pop().replace(/_/g, ' ')} time` : '';
+  $('sunline').textContent = (alt > 0 ? `${Math.round(alt)}° up, ${dirName(S.sun.az)}` + (S.polar ? '' : ` · sets ${fmtT(S.set)}`) : 'Sun is down' + (S.polar ? '' : ` · rises ${fmtT(S.rise)}`)) + zone;
+  const r = 22 * (1 - Math.max(0, Math.min(90, alt)) / 90), sx = 26 + r * Math.sin(S.sun.az), sy = 26 - r * Math.cos(S.sun.az);
+  $('dsun').setAttribute('cx', sx.toFixed(1)); $('dsun').setAttribute('cy', sy.toFixed(1)); $('dsun').style.opacity = alt > 0 ? 1 : 0.25;
+  $('dray').setAttribute('x2', sx.toFixed(1)); $('dray').setAttribute('y2', sy.toFixed(1));
+  refresh();
+}
+function shiftToDay(ms) { const p = zParts(ms); return localToMs(S.day.y, S.day.m, S.day.d, p.h * 60 + p.mi); }
+
+/* ======================= detail + nearby ======================= */
+function select(sel, fly) {
+  S.sel = sel;
+  $('detail').hidden = !sel; $('nearby').style.display = sel ? 'none' : 'flex';
+  map.getSource('sel').setData(fc(sel ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [sel.lon, sel.lat] }, properties: {} }] : []));
+  if (sel && fly) map.easeTo({ center: [sel.lon, sel.lat], zoom: Math.max(map.getZoom(), 16.5), padding: mapPadding(), duration: 700 });
+  if (sel) renderDetail(); else renderNearby();
+}
+function selLocal(sel) {
+  const E = S.engine; if (!E) return null;
+  if (sel.samp && sel.E === E) return sel;
+  const [x, y] = toLocal(E, sel.lon, sel.lat);
+  return { ...sel, x, y, samp: null };
+}
+function renderDetail() {
+  const sel = S.sel; if (!sel) return;
+  $('dname').textContent = sel.name;
+  $('dmeta').textContent = sel.meta || (sel.k ? KNAME[sel.k] + (sel.k === 'p' ? ' · share of the park in sun' : ' · checked just outside the door') : 'Spot on the map');
+  const pill = $('dpill'), E = S.engine, L = selLocal(sel), sum = $('dsum'), strip = $('strip'), ax = $('axis');
+  strip.textContent = ''; ax.textContent = ''; sum.textContent = '';
+  if (!E || !L) { pill.className = 'pill shade'; pill.textContent = '–'; sum.textContent = 'Zoom in to a neighbourhood to see sun and shade here.'; return; }
+  const val = (sun) => (L.samp ? spotSunAt(E, L, sun) : sunAt(E, L.x, L.y, sun));
+  const f = val(S.sun);
+  if (S.sun.alt <= 0) { pill.className = 'pill shade'; pill.textContent = 'Sun down'; }
+  else if (L.samp) { pill.className = 'pill ' + (f >= 0.66 ? 'sun' : f >= 0.25 ? 'part' : 'shade'); pill.textContent = Math.round(f * 100) + '% in sun'; }
+  else if (f >= SUNNY) { pill.className = 'pill sun'; pill.textContent = 'In sun'; }
+  else if (f >= 0.25) { pill.className = 'pill part'; pill.textContent = 'Dappled'; }
+  else { pill.className = 'pill shade'; pill.textContent = 'In shade'; }
+  if (S.polar === 'night') { sum.textContent = 'The sun stays below the horizon here on this date.'; return; }
+  const pr = [], step = 15 * 6e4;
+  for (let t = S.rise; t <= S.set; t += step) pr.push({ t, f: val(sunPos(t, S.loc[1], S.loc[0])) });
+  for (const s of pr) {
+    const el = document.createElement('span');
+    el.style.background = s.f >= 0.999 ? 'var(--sun)' : s.f <= 0.001 ? 'var(--chip)' : `color-mix(in srgb, var(--sun) ${Math.round(s.f * 100)}%, var(--chip))`;
+    strip.appendChild(el);
+  }
+  if (S.ms >= S.rise && S.ms <= S.set) { const m = document.createElement('i'); m.style.left = `calc(${((S.ms - S.rise) / (S.set - S.rise) * 100).toFixed(2)}% - 1px)`; strip.appendChild(m); }
+  for (const fr of [0, 1 / 3, 2 / 3, 1]) { const e = document.createElement('span'); e.textContent = fmtT(S.rise + (S.set - S.rise) * fr); ax.appendChild(e); }
+  const runs = []; let cur = null;
+  for (const s of pr) { const on = s.f >= (L.samp ? 0.5 : SUNNY); if (on && !cur) cur = { a: s.t, b: s.t }; if (on) cur.b = s.t + step; if (!on && cur) { runs.push(cur); cur = null; } }
+  if (cur) runs.push(cur);
+  if (!runs.length) { sum.textContent = L.samp ? 'Mostly shaded all day on this date.' : 'No clear sun here on this date.'; return; }
+  const total = runs.reduce((a, r) => a + (Math.min(r.b, S.set) - r.a), 0) / 36e5, b = document.createElement('strong');
+  b.textContent = runs.map((r) => `${fmtT(r.a)}–${fmtT(Math.min(r.b, S.set))}`).join(', ');
+  sum.append(L.samp ? 'Mostly sunny ' : 'Sun ', b, ` · about ${total < 1 ? Math.round(total * 60) + ' min' : (Math.round(total * 2) / 2) + ' h'} in total.`);
+}
+function spotSunAt(E, s, sun) { let n = 0, on = 0; for (let i = 0; i < s.samp.length; i += 2) { n++; if (sunAt(E, s.samp[i], s.samp[i + 1], sun) >= SUNNY) on++; } return on / n; }
+const SUN_SVG = '<svg class="sunglyph" viewBox="0 0 32 32" aria-hidden="true"><g stroke="var(--sun)" stroke-width="3" stroke-linecap="round"><path d="M16 2v4M16 26v4M2 16h4M26 16h4M6 6l3 3M23 23l3 3M6 26l3-3M23 9l3-3"/></g><circle cx="16" cy="16" r="7" fill="var(--sun)"/></svg>';
+function renderNearby() {
+  if (S.sel) return;
+  const ul = $('spots'); ul.textContent = '';
+  if (map.getZoom() < MIN_SHADE_ZOOM) { $('nlabel').textContent = 'Zoom in to a neighbourhood to see sun and shade'; return; }
+  if (!S.sun || S.sun.alt <= 0) { $('nlabel').textContent = 'The sun is down'; return; }
+  $('nlabel').textContent = S.live ? 'In the sun right now, near the centre' : `In the sun at ${fmtT(S.ms)}, near the centre`;
+  const E = S.engine; if (!E) return;
+  const c = map.getCenter(), [cx, cy] = toLocal(E, c.lng, c.lat);
+  const list = S.spots.filter((s) => S.filters[s.k] && s.f != null && (s.k === 'p' ? s.f >= 0.5 : s.f >= SUNNY))
+    .map((s) => [Math.hypot(s.x - cx, s.y - cy), s]).sort((a, b) => a[0] - b[0]).slice(0, 5);
+  if (!list.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'No sunny spots in view. Try another time, or move the map.'; ul.appendChild(li); return; }
+  for (const [d, s] of list) {
+    const li = document.createElement('li'), b = document.createElement('button'); b.type = 'button';
+    b.innerHTML = SUN_SVG;
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = s.name;
+    const sm = document.createElement('small'); sm.textContent = (s.k === 'p' ? Math.round(s.f * 100) + '% · ' : '') + (d < 1000 ? Math.round(d / 10) * 10 + ' m' : (d / 1000).toFixed(1) + ' km');
+    b.append(nm, sm);
+    b.addEventListener('click', () => select({ ...s, E }, true));
+    li.appendChild(b); ul.appendChild(li);
+  }
+}
+
+/* ======================= interaction ======================= */
+function mapPadding() {
+  const sh = $('sheet').getBoundingClientRect(), wide = sh.width < window.innerWidth * 0.8;
+  return wide ? { left: sh.right, top: 60, right: 0, bottom: 0 } : { bottom: window.innerHeight - sh.top, top: 60, left: 0, right: 0 };
+}
+map.on('click', (e) => {
+  const pad = 14, feats = map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: ['spot-dot', 'spot-sun', 'spot-park', 'spot-name'] });
+  if (feats.length) { const s = S.spots[feats[0].properties.i]; if (s) { select({ ...s, E: S.engine }, false); return; } }
+  select({ name: 'Dropped pin', lon: e.lngLat.lng, lat: e.lngLat.lat, k: null }, false);
+});
+map.on('mouseenter', 'spot-sun', () => (map.getCanvas().style.cursor = 'pointer'));
+map.on('mouseleave', 'spot-sun', () => (map.getCanvas().style.cursor = ''));
+map.on('moveend', () => {
+  const c = map.getCenter(), z = map.getZoom();
+  history.replaceState(null, '', `#${z.toFixed(2)}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`);
+  if (Math.abs(c.lng - S.loc[0]) > 0.5 || Math.abs(c.lat - S.loc[1]) > 0.5) {
+    const kp = zParts(S.ms), wasLive = S.live;
+    S.loc = [c.lng, c.lat];
+    const tz = tzFor(c.lat, c.lng);
+    if (tz !== TZ) { TZ = tz; if (sameDay(S.day, S.today)) S.day = todayParts(); }
+    S.today = todayParts();
+    setDay(S.day);
+    if (wasLive) goLive(); else setTime(S.slots[nearestSlot(localToMs(S.day.y, S.day.m, S.day.d, kp.h * 60 + kp.mi))], false);
+  } else refresh();
+});
+map.on('sourcedata', (e) => { if (e.sourceId === 'omt' && e.isSourceLoaded && !map.isMoving()) refresh(); });
+map.on('idle', () => { if (dirty) doRefresh(); });
+map.on('load', () => {
+  ready = true;
+  addMapExtras();
+  document.querySelectorAll('.maplibregl-ctrl-attrib').forEach((el) => el.classList.remove('maplibregl-compact-show'));
+  const c = map.getCenter(); S.loc = [c.lng, c.lat]; TZ = tzFor(c.lat, c.lng); S.today = todayParts();
+  goLive();
+});
+
+$('slider').addEventListener('input', (e) => { const i = +e.target.value; if (S.slots[i] != null) setTime(S.slots[i], false); });
+$('live').addEventListener('click', goLive);
+$('dToday').addEventListener('click', () => { const k = S.ms; setDay(todayParts()); setTime(S.slots[nearestSlot(shiftToDay(k))], false); });
+$('dTomorrow').addEventListener('click', () => { const k = S.ms; setDay(addDays(todayParts(), 1)); setTime(S.slots[nearestSlot(shiftToDay(k))], false); });
+$('dPick').addEventListener('change', (e) => { const v = e.target.value; if (!v) return; const [y, m, d] = v.split('-').map(Number), k = S.ms; setDay({ y, m, d }); setTime(S.slots[nearestSlot(shiftToDay(k))], false); });
+$('dclose').addEventListener('click', () => select(null));
+document.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => { const k = b.dataset.k; S.filters[k] = !S.filters[k]; b.setAttribute('aria-pressed', String(S.filters[k])); updateSpots(); }));
+$('treesChip').addEventListener('click', () => { S.trees = !S.trees; $('treesChip').setAttribute('aria-pressed', String(S.trees)); setTime(S.ms, S.live); });
+// Live mode refreshes every 5 minutes, only while visible
+function liveTick() { if (S.live && document.visibilityState === 'visible' && S.day) { const now = Date.now(); if (now > S.set) goLive(); else setTime(now, true); } }
+setInterval(liveTick, 5 * 60000);
+document.addEventListener('visibilitychange', liveTick);
+
+/* --- search: names in view instantly, places worldwide on Enter (OpenStreetMap Nominatim) --- */
+const q = $('q'), res = $('results');
+let hits = [], hi = 0, lastGeo = 0;
+function showResults(list, extra) {
+  hits = list; hi = 0; res.textContent = '';
+  list.forEach((h, i) => {
+    const li = document.createElement('li'), b = document.createElement('button'); b.type = 'button'; if (i === 0) b.className = 'on';
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = h.label;
+    const sm = document.createElement('small'); sm.textContent = h.kind;
+    b.append(nm, sm); b.addEventListener('mousedown', (e) => e.preventDefault()); b.addEventListener('click', () => pick(h));
+    li.appendChild(b); res.appendChild(li);
+  });
+  if (extra) { const li = document.createElement('li'); li.className = 'note2'; li.textContent = extra; res.appendChild(li); }
+  res.hidden = false;
+}
+q.addEventListener('input', () => {
+  const t = q.value.trim().toLowerCase();
+  if (t.length < 2) { res.hidden = true; return; }
+  const local = S.spots.filter((s) => s.name.toLowerCase().includes(t)).slice(0, 6).map((s) => ({ label: s.name, kind: KNAME[s.k] + ' · nearby', spot: s }));
+  showResults(local, 'Press Enter to search everywhere');
+});
+async function geoSearch(text) {
+  const now = Date.now(); if (now - lastGeo < 1100) return; lastGeo = now; // one request per second, per the service's policy
+  const b = map.getBounds(), vb = [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()].map((v) => v.toFixed(4)).join(',');
+  showResults(hits.filter((h) => h.spot), 'Searching…');
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&viewbox=${vb}&q=${encodeURIComponent(text)}`, { headers: { 'Accept-Language': navigator.language || 'en' } });
+    const data = await r.json();
+    const geo = data.map((d) => ({ label: d.display_name.split(',').slice(0, 3).join(','), kind: (d.type || 'place').replace(/_/g, ' '), lon: +d.lon, lat: +d.lat, bbox: d.boundingbox && d.boundingbox.map(Number) }));
+    showResults([...hits.filter((h) => h.spot), ...geo], geo.length ? '' : 'Nothing found. Try adding the city.');
+  } catch (e) { showResults(hits.filter((h) => h.spot), 'Search is unavailable right now.'); }
+}
+q.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); const t = q.value.trim(); if (t.length >= 2) geoSearch(t); }
+  if (e.key === 'Escape') { res.hidden = true; q.blur(); }
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && hits.length) {
+    e.preventDefault(); hi = (hi + (e.key === 'ArrowDown' ? 1 : -1) + hits.length) % hits.length;
+    [...res.querySelectorAll('button')].forEach((b, i) => b.classList.toggle('on', i === hi));
+  }
+});
+q.addEventListener('blur', () => setTimeout(() => (res.hidden = true), 150));
+function pick(h) {
+  res.hidden = true; q.blur(); q.value = '';
+  if (h.spot) { select({ ...h.spot, E: S.engine }, true); return; }
+  const small = !h.bbox || Math.abs(h.bbox[1] - h.bbox[0]) < 0.01;
+  if (small) { map.once('moveend', () => select({ name: h.label.split(',')[0], meta: h.label, lon: h.lon, lat: h.lat, k: null }, false)); map.flyTo({ center: [h.lon, h.lat], zoom: 17, padding: mapPadding(), speed: 2 }); }
+  else { select(null); map.fitBounds([[h.bbox[2], h.bbox[0]], [h.bbox[3], h.bbox[1]]], { padding: mapPadding(), maxZoom: 16 }); }
+}
+
+/* --- my location --- */
+$('locate').addEventListener('click', () => {
+  const btn = $('locate');
+  if (!navigator.geolocation) { note('Location isn’t available in this browser.'); return; }
+  btn.classList.add('busy');
+  navigator.geolocation.getCurrentPosition((pos) => {
+    btn.classList.remove('busy');
+    const lon = pos.coords.longitude, lat = pos.coords.latitude, acc = pos.coords.accuracy;
+    S.me = { lon, lat, acc };
+    const mpp = 156543.03 * Math.cos(lat * RAD) / Math.pow(2, 17);
+    map.getSource('me').setData(fc([{ type: 'Feature', geometry: { type: 'Point', coordinates: [lon, lat] }, properties: { px: Math.min(acc, 300) / mpp } }]));
+    map.once('moveend', () => select({ name: 'You are here', meta: `Your location, within about ${Math.round(Math.min(acc, 999))} m`, lon, lat, k: null }, false));
+    map.flyTo({ center: [lon, lat], zoom: 17, padding: mapPadding(), speed: 2 });
+  }, () => { btn.classList.remove('busy'); note('Location was blocked. Allow it in your browser, or search instead.'); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+});
+
+/* --- theme --- */
+function retheme() {
+  readColors();
+  const C = S.colors, set = (id, prop, v) => map.getLayer(id) && map.setPaintProperty(id, prop, v);
+  set('bg', 'background-color', C.ground); set('wood', 'fill-color', C.wood); set('park', 'fill-color', C.park); set('grass', 'fill-color', C.park);
+  set('water', 'fill-color', C.water); set('road-minor', 'line-color', C.road); set('road-path', 'line-color', C.road);
+  set('road-major-case', 'line-color', C['road-edge']); set('road-major', 'line-color', C.road); set('rail', 'line-color', C['road-edge']);
+  set('building', 'fill-color', C.bldg); set('building-edge', 'line-color', C['bldg-edge']);
+  for (const id of ['road-label', 'place-label']) { set(id, 'text-color', C.label); set(id, 'text-halo-color', C.halo); }
+  addMapExtras(); for (const c of [S.toronto, S.tileEngine]) if (c) for (const cell of c.cells.values()) cell.shKey = '';
+  refresh();
+}
+const mq = matchMedia('(prefers-color-scheme: dark)');
+mq.addEventListener ? mq.addEventListener('change', retheme) : mq.addListener(retheme);
+new ResizeObserver(() => document.documentElement.style.setProperty('--sheet-h', (window.innerWidth < 760 ? $('sheet').offsetHeight : 0) + 'px')).observe($('sheet'));
+})();
+</script>
+</body>
+</html>
